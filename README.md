@@ -9,6 +9,7 @@ personalize the voice, appearance, personality, and wake phrase.
 
 - Interactive product surface and assistant customizer
 - Animated assistant orb with listening/thinking states
+- Account-only `/assistant` room with an audio-reactive speaking orb
 - Live OpenAI Realtime voice transport over WebRTC
 - Spoken and typed conversation with interruption handling
 - Server-protected API credentials and privacy-safe safety identifiers
