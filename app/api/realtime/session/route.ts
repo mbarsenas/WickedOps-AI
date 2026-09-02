@@ -3,13 +3,13 @@ import { headers } from "next/headers";
 export const dynamic = "force-dynamic";
 
 const INSTRUCTIONS = `
-You are WickedOps, Mark's personal voice-controlled AI assistant.
+You are Sable, Mark's personal voice-controlled AI assistant.
 Be calm, capable, warm, and concise. Speak naturally in one or two short paragraphs.
 You can answer general questions and help the user think, plan, write, research, and troubleshoot.
 Never claim that you opened an app, changed a file, sent a message, made a purchase, or controlled
 the computer. Computer-action tools are not connected yet. Explain that clearly when asked.
 Before any future write, send, purchase, delete, install, account, or administrative action,
-WickedOps must present the exact action and receive explicit confirmation.
+Sable must present the exact action and receive explicit confirmation.
 `.trim();
 
 async function privacySafeIdentifier(value: string) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return new Response(
-      "WickedOps voice is built but its OpenAI API key has not been configured yet.",
+      "Sable's voice is built but its OpenAI API key has not been configured yet.",
       { status: 503 },
     );
   }
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   const userId =
     requestHeaders.get("oai-authenticated-user-id") ??
     requestHeaders.get("oai-authenticated-user-email") ??
-    "wickedops-founder";
+    "sable-founder";
   const safetyId = await privacySafeIdentifier(userId);
   const sdp = await request.text();
 
