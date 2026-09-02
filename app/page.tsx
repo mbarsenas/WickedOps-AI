@@ -14,7 +14,7 @@ export default function Home() {
   const [command, setCommand] = useState("");
   const [mode, setMode] = useState<"ready" | "listening" | "thinking">("ready");
   const [reply, setReply] = useState("Ready when you are, Mark.");
-  const [assistantName, setAssistantName] = useState("Wicked");
+  const [assistantName, setAssistantName] = useState("Sable");
   const [accent, setAccent] = useState("cyan");
   const [connected, setConnected] = useState(false);
   const [voiceError, setVoiceError] = useState("");
@@ -24,14 +24,20 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("wickedops-profile");
+    const saved =
+      window.localStorage.getItem("sable-profile") ??
+      window.localStorage.getItem("wickedops-profile");
     if (saved) {
       try {
         const profile = JSON.parse(saved) as { name?: string; accent?: string };
-        if (profile.name) setAssistantName(profile.name);
+        if (profile.name && profile.name !== "Wicked") {
+          setAssistantName(profile.name);
+        } else {
+          setAssistantName("Sable");
+        }
         if (profile.accent) setAccent(profile.accent);
       } catch {
-        window.localStorage.removeItem("wickedops-profile");
+        window.localStorage.removeItem("sable-profile");
       }
     }
     return () => disconnectVoice();
@@ -39,7 +45,7 @@ export default function Home() {
 
   useEffect(() => {
     window.localStorage.setItem(
-      "wickedops-profile",
+      "sable-profile",
       JSON.stringify({ name: assistantName, accent }),
     );
   }, [assistantName, accent]);
@@ -151,7 +157,7 @@ export default function Home() {
   return (
     <main className={`shell accent-${accent}`}>
       <nav>
-        <a className="brand" href="#home"><span><Command size={17} /></span>WickedOps</a>
+        <a className="brand" href="#home"><span><Command size={17} /></span>Sable</a>
         <div className="navlinks"><a href="#capabilities">Capabilities</a><a href="#personalize">Personalize</a><a href="#roadmap">Roadmap</a></div>
         <div className="founder">Founder preview</div>
       </nav>
@@ -160,7 +166,7 @@ export default function Home() {
         <div className="copy">
           <div className="eyebrow"><i /> Personal AI, built around you</div>
           <h1>Your computer finally<br />speaks <em>your language.</em></h1>
-          <p>Name it. Shape its personality. Connect your world. WickedOps turns natural conversation into useful action—with you in control.</p>
+          <p>Shape its personality. Connect your world. Sable turns natural conversation into useful action—with you in control.</p>
           <a className="cta" href="#console">Meet your assistant <ArrowRight size={18} /></a>
           <div className="trust"><span><Check size={15} /> Your assistant, your name</span><span><Check size={15} /> Approval before sensitive actions</span></div>
         </div>
@@ -185,7 +191,7 @@ export default function Home() {
       <section className="examples"><span>Try saying</span>{examples.map((x) => <button key={x} onClick={() => setCommand(x)}>“{x}”</button>)}</section>
 
       <section className="section" id="capabilities">
-        <header><span>More than a chatbot</span><h2>One conversation.<br />Your whole digital world.</h2><p>WickedOps is designed to understand what you mean, choose the right ability, and get the work done.</p></header>
+        <header><span>More than a chatbot</span><h2>One conversation.<br />Your whole digital world.</h2><p>Sable is designed to understand what you mean, choose the right ability, and get the work done.</p></header>
         <div className="cards">
           {[
             [Monitor, "Computer control", "Apps, files, settings, and browser"],
@@ -224,11 +230,11 @@ export default function Home() {
           <article><span>Complete</span><b>Product foundation</b><p>Identity, console, safety model, and architecture.</p></article>
           <article className="current"><span>Now</span><b>Live voice</b><p>Natural speech, interruptions, answers, and text input.</p></article>
           <article><span>Then</span><b>Windows companion</b><p>Secure control of apps, files, browser tasks, and PowerShell.</p></article>
-          <article><span>Later</span><b>Your own WickedOps</b><p>Customer accounts, skills, personalization, and subscriptions.</p></article>
+          <article><span>Later</span><b>Your own Sable</b><p>Customer accounts, skills, personalization, and subscriptions.</p></article>
         </div>
       </section>
 
-      <footer><a className="brand" href="#home"><span><Command size={17} /></span>WickedOps</a><p>Personal AI that acts with your permission.</p><small>Founder build · 2026</small></footer>
+      <footer><a className="brand" href="#home"><span><Command size={17} /></span>Sable</a><p>Personal AI that acts with your permission.</p><small>Founder build · 2026</small></footer>
     </main>
   );
 }
