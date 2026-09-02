@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "WickedOps — Your personal AI assistant",
+  title: "Sable — Your personal AI assistant",
   description:
     "Create a voice-controlled AI assistant shaped around your personality, preferences, computer, and connected services.",
   icons: {
