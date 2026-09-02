@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { getChatGPTUser } from "../../../chatgpt-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,10 @@ async function privacySafeIdentifier(value: string) {
 }
 
 export async function POST(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) {
+    return new Response("Sign in to use Sable.", { status: 401 });
+  }
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return new Response(
