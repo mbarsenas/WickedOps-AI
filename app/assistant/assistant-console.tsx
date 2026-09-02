@@ -15,6 +15,7 @@ export default function AssistantConsole({ displayName }: { displayName: string 
   const channelRef = useRef<RTCDataChannel | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const orbRef = useRef<HTMLDivElement | null>(null);
 
@@ -29,15 +30,21 @@ export default function AssistantConsole({ displayName }: { displayName: string 
     }
   }
 
-  function startMeter(stream: MediaStream) {
+  async function startPlayback(stream: MediaStream) {
+    const audio = remoteAudioRef.current;
+    if (audio) {
+      audio.srcObject = stream;
+      audio.volume = 1;
+      await audio.play();
+    }
     const context = audioContextRef.current ?? new AudioContext();
+    if (context.state === "suspended") await context.resume();
     audioContextRef.current = context;
     const analyser = context.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.72;
     const source = context.createMediaStreamSource(stream);
     source.connect(analyser);
-    analyser.connect(context.destination);
     const samples = new Uint8Array(analyser.frequencyBinCount);
 
     const measure = () => {
@@ -45,8 +52,8 @@ export default function AssistantConsole({ displayName }: { displayName: string 
       const average = samples.reduce((sum, value) => sum + value, 0) / samples.length / 255;
       const level = Math.min(1, average * 3.2);
       if (orbRef.current) {
-        orbRef.current.style.transform = `scale(${1 + level * 0.2})`;
-        orbRef.current.style.filter = `drop-shadow(0 0 ${30 + level * 75}px rgba(69, 230, 208, ${0.2 + level * 0.5}))`;
+        orbRef.current.style.transform = `scale(${1 + level * 0.28})`;
+        orbRef.current.style.filter = `drop-shadow(0 0 ${30 + level * 95}px rgba(69, 230, 208, ${0.2 + level * 0.62}))`;
       }
       animationRef.current = requestAnimationFrame(measure);
     };
@@ -59,6 +66,7 @@ export default function AssistantConsole({ displayName }: { displayName: string 
     peerRef.current?.close();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     audioContextRef.current?.close();
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     channelRef.current = null;
     peerRef.current = null;
     localStreamRef.current = null;
@@ -82,7 +90,12 @@ export default function AssistantConsole({ displayName }: { displayName: string 
       audioContextRef.current = audioContext;
       const pc = new RTCPeerConnection();
       peerRef.current = pc;
-      pc.ontrack = (event) => startMeter(event.streams[0]);
+      pc.ontrack = (event) => {
+        const stream = event.streams[0] ?? new MediaStream([event.track]);
+        startPlayback(stream).catch(() => {
+          setError("Your browser blocked Sable's speaker. Tap the microphone once more.");
+        });
+      };
 
       const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = localStream;
@@ -92,8 +105,14 @@ export default function AssistantConsole({ displayName }: { displayName: string 
       channelRef.current = dc;
       dc.addEventListener("open", () => {
         setConnected(true);
-        setMode("listening");
-        setReply("I’m listening.");
+        setMode("thinking");
+        setReply("Sable is joining you…");
+        dc.send(JSON.stringify({
+          type: "response.create",
+          response: {
+            instructions: "Greet Mark warmly in one short sentence and ask what he would like to do.",
+          },
+        }));
       });
       dc.addEventListener("message", (event) => {
         const message = JSON.parse(event.data);
@@ -171,6 +190,7 @@ export default function AssistantConsole({ displayName }: { displayName: string 
       </header>
 
       <section className="assistant-room">
+        <audio ref={remoteAudioRef} autoPlay playsInline />
         <div className="assistant-grid" />
         <div className="assistant-orb-space">
           <div className={`account-orb-shell ${mode}`} ref={orbRef}>
