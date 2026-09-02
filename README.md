@@ -6,7 +6,10 @@ WickedOps is a personalized, voice-first AI assistant designed to converse natur
 
 - Interactive product surface and assistant customizer
 - Animated assistant orb with listening/thinking states
-- Command-console prototype
+- Live OpenAI Realtime voice transport over WebRTC
+- Spoken and typed conversation with interruption handling
+- Server-protected API credentials and privacy-safe safety identifiers
+- Device-local assistant name and color preferences
 - Safety-first roadmap for sensitive actions
 - Responsive Sites deployment
 
@@ -32,4 +35,6 @@ npm run install:ci
 npm run build
 ```
 
-The first release is a private founder preview. Live voice, persistence, and computer control will be introduced as separately testable milestones.
+The first release is a private founder preview. Configure `OPENAI_API_KEY` as a
+server-side secret to activate voice. Cloud profiles and computer control will be
+introduced as separately testable milestones.
