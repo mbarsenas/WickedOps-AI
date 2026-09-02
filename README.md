@@ -1,6 +1,9 @@
-# WickedOps AI
+# Sable AI
 
-WickedOps is a personalized, voice-first AI assistant designed to converse naturally, operate a user's computer with permission, and connect to the services they choose.
+Sable is a personalized, voice-first AI assistant designed to converse naturally, operate a user's computer with permission, and connect to the services they choose.
+
+Sable is both the product and the default assistant identity. Future customers can
+personalize the voice, appearance, personality, and wake phrase.
 
 ## Current milestone
 
@@ -15,10 +18,10 @@ WickedOps is a personalized, voice-first AI assistant designed to converse natur
 
 ## Product architecture
 
-1. **WickedOps Web** — customer account, assistant profile, connected services, permissions, and activity.
-2. **WickedOps Voice** — OpenAI Realtime voice sessions using WebRTC, server-side tools, and explicit confirmation boundaries.
-3. **WickedOps Companion** — signed Windows application that performs approved local actions.
-4. **WickedOps Cloud** — multi-tenant profiles, encrypted connector metadata, device registration, audit events, and subscriptions.
+1. **Sable Web** — customer account, assistant profile, connected services, permissions, and activity.
+2. **Sable Voice** — OpenAI Realtime voice sessions using WebRTC, server-side tools, and explicit confirmation boundaries.
+3. **Sable Companion** — signed Windows application that performs approved local actions.
+4. **Sable Cloud** — multi-tenant profiles, encrypted connector metadata, device registration, audit events, and subscriptions.
 
 ## Security model
 
