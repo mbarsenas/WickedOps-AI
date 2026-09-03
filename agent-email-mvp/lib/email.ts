@@ -3,6 +3,8 @@ import { db, audit } from './db';
 import { evaluatePolicy } from './policy';
 import { proposeReply } from './runtime';
 import { HttpError } from './auth';
+import {captureInbound} from './inbound';
+import {enqueueEvent,dispatchWebhooks} from './webhooks';
 export function mail(){if(!process.env.RESEND_API_KEY)throw new Error('Email service is not configured');return new Resend(process.env.RESEND_API_KEY);}
 export function address(value:string){return (value.match(/<([^<>]+)>/)?.[1]||value).trim().toLowerCase();}
 export async function executeAction(id:string,actor:string){
@@ -32,6 +34,7 @@ export async function executeAction(id:string,actor:string){
    sql`UPDATE conversations SET last_message_at=now() WHERE id=${a.conversation_id}`,
    sql`INSERT INTO audit_events(organization_id,agent_id,conversation_id,event_type,actor_type,actor_id,data) VALUES(${a.organization_id},${a.agent_id},${a.conversation_id},'email.sent',${actor==='system'?'system':'human'},${actor},${JSON.stringify({action_id:id,provider_id:sent.data.id})}::jsonb)`
   ]);
+  await enqueueEvent(a.organization_id,'email.sent','sent/'+sent.data.id,{id:sent.data.id});await dispatchWebhooks(a.organization_id);
   return {status:'executed',provider_id:sent.data.id};
  }catch(e){
   await sql.transaction([sql`UPDATE proposed_actions SET status='failed',updated_at=now() WHERE id=${id} AND status<>'executed'`,sql`UPDATE action_executions SET state='failed',lease_until=NULL,last_error=${e instanceof Error?e.message.slice(0,500):'Send failed'} WHERE action_id=${id} AND state<>'sent'`]);
@@ -51,10 +54,12 @@ export async function ingest(providerId:string){
   const received=await mail().emails.receiving.get(providerId);
   if(received.error||!received.data)throw new Error(received.error?.message||'Unable to retrieve email');
   const email=received.data; const from=address(email.from);
+  await captureInbound(providerId,{from,to:email.to.map(address),subject:email.subject,text:email.text});
   const recipients=email.to.map(address);
   const identities=await sql`SELECT ei.address,ei.status AS identity_status,a.* FROM email_identities ei JOIN agents a ON a.id=ei.agent_id WHERE ei.address=ANY(${recipients}) ORDER BY ei.created_at`;
   const identity=identities[0];
   if(!identity){await sql`UPDATE email_jobs SET status='done',lease_until=NULL WHERE provider_message_id=${providerId}`;return {ok:true,ignored:true};}
+  await sql`UPDATE email_jobs SET organization_id=${identity.organization_id} WHERE provider_message_id=${providerId}`;
   const headers=(email as unknown as {headers?:Record<string,string>}).headers||{};
   const auto=Object.entries(headers).some(([k,v])=>k.toLowerCase()==='auto-submitted' && v!=='no');
   const own=await sql`SELECT id FROM email_identities WHERE address=${from}`;

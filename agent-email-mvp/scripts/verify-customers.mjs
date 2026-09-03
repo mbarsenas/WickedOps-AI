@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import {mock} from 'node:test';
+import {createHmac} from 'node:crypto';
+if(!process.env.TEST_DATABASE_URL)throw new Error('An isolated test database is required');
+process.env.DATABASE_URL=process.env.TEST_DATABASE_URL;
+process.env.APP_BASE_URL='https://platform.example.com';process.env.RESEND_API_KEY='test-provider-key';
+let user=null;
+mock.module(new URL('../app/chatgpt-auth.ts',import.meta.url).href,{namedExports:{getChatGPTUser:async()=>user}});
+const {GET,POST}=await import('../app/api/[...path]/route.ts');
+const {POST:createWorkspace}=await import('../app/api/workspaces/route.ts');
+const {POST:approve}=await import('../app/api/approvals/[id]/approve/route.ts');
+const {POST:reject}=await import('../app/api/approvals/[id]/reject/route.ts');
+const {sendApi}=await import('../lib/api-send.ts');const {GET:received}=await import('../app/api/v1/received/route.ts');
+const {db}=await import('../lib/db.ts');const {captureInbound}=await import('../lib/inbound.ts');
+const {enqueueEvent,dispatchWebhooks}=await import('../lib/webhooks.ts');
+const sql=db();const realFetch=globalThis.fetch;let sends=0,hookAttempts=0;const sentRequests=[];
+globalThis.fetch=async(input,init)=>{
+ const url=String(input);
+ if(url.startsWith('https://api.resend.com/')){
+  if(url==='https://api.resend.com/emails'){sends++;sentRequests.push(init);return Response.json({id:crypto.randomUUID()});}
+  throw new Error('Unexpected provider call: '+url);
+ }
+ if(url==='https://hooks.example.org/email'){
+  hookAttempts++;const h=init.headers;assert.equal(h['webhook-signature'],'v1='+createHmac('sha256','test-secret').update(h['webhook-id']+'.'+h['webhook-timestamp']+'.'+init.body).digest('hex'));
+  return new Response(null,{status:hookAttempts===1?500:204});
+ }
+ return realFetch(input,init);
+};
+const request=(path,body,origin=process.env.APP_BASE_URL)=>new Request(process.env.APP_BASE_URL+'/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json',origin},...(body===undefined?{}:{body:JSON.stringify(body)})});
+const call=async(path,body)=>{const r=await (body===undefined?GET:POST)(request(path,body),{params:Promise.resolve({path:path.split('/')})});return {status:r.status,body:await r.json()};};
+const suffix=crypto.randomUUID().slice(0,8);const alice={email:'alice-'+suffix+'@example.com'},bob={email:'bob-'+suffix+'@example.com'};
+assert.equal((await call('state')).status,401);
+user=alice;let r=await createWorkspace(request('workspaces',{name:'Test customer A'}));assert.equal(r.status,201);const a=(await r.json()).id;
+r=await createWorkspace(request('workspaces',{name:'Do not duplicate'}));assert.equal((await r.json()).id,a);
+const agent=(await call('agents',{name:'Tenant A agent',instructions:'Reply to the test.'})).body;
+const domain='a-'+suffix+'.example.com';await sql`INSERT INTO sending_domains(organization_id,name,status,receiving) VALUES(${a},${domain},'verified','enabled')`;
+const keyA=(await call('api-keys',{name:'Primary'})).body;
+user=bob;r=await createWorkspace(request('workspaces',{name:'Test customer B'}));const b=(await r.json()).id;assert.notEqual(a,b);
+const keyB=(await call('api-keys',{name:'Primary'})).body;
+let state=await call('state');assert.equal(state.status,200,JSON.stringify(state.body));assert.equal(state.body.agents.length,0);assert.equal(state.body.apiKeys.length,1);assert.equal(state.body.workspace.id,b);assert.equal((await call('domains')).body.data.length,0);
+assert.equal((await call('agents/'+agent.id,{status:'paused'})).status,404);
+assert.equal((await call('api-keys/'+keyA.id+'/revoke',{})).status,404);
+const conversation=(await sql`INSERT INTO conversations(agent_id,external_thread_id,subject,participant_email) VALUES(${agent.id},${suffix},'Isolation','sender@example.com') RETURNING id`)[0];
+const action=(await sql`INSERT INTO proposed_actions(agent_id,conversation_id,action_type,payload,rationale) VALUES(${agent.id},${conversation.id},'send_email_reply','{}','test') RETURNING id`)[0];
+const approval=(await sql`INSERT INTO approvals(proposed_action_id) VALUES(${action.id}) RETURNING id`)[0];
+for(const handler of [approve,reject])assert.equal((await handler(request('approval',{}),{params:Promise.resolve({id:approval.id})})).status,404);
+assert.equal((await call('actions/'+action.id+'/retry',{})).status,404);
+assert.equal((await call('jobs/retry',{provider_message_id:crypto.randomUUID()})).status,404);
+assert.equal((await POST(request('agents',{name:'bad',instructions:'should not run'},'https://evil.example'),{params:Promise.resolve({path:['agents']})})).status,403);
+assert.equal((await call('webhook-endpoints',{url:'https://127.0.0.1/private',event_types:['email.sent']})).status,400);
+const body={from:'team@'+domain,to:'test@example.com',subject:'Hello',text:'Controlled test'};
+const send=(token,idempotency,payload=body)=>sendApi(new Request(process.env.APP_BASE_URL+'/api/v1/emails',{method:'POST',headers:{authorization:'Bearer '+token,'Idempotency-Key':idempotency},body:JSON.stringify(payload)}));
+assert.equal((await send(keyB.secret,'foreign-domain')).status,403);assert.equal(sends,0);
+await sql`UPDATE organizations SET monthly_limit=2 WHERE id=${a}`;
+assert.equal((await send(keyA.secret,'same-message')).status,202);assert.equal(sends,1);
+assert.equal((await send(keyA.secret,'same-message')).status,200);assert.equal(sends,1);
+assert.equal((await send(keyA.secret,'same-message',{...body,text:'Changed'})).status,409);
+const parallel=await Promise.all(['parallel-1','parallel-2'].map(k=>send(keyA.secret,k)));assert.deepEqual(parallel.map(r=>r.status).sort(),[202,429]);assert.equal(sends,2);
+const usage=(await sql`SELECT accepted,reserved FROM monthly_usage WHERE organization_id=${a}`)[0];assert.equal(usage.accepted,2);assert.equal(usage.reserved,0);
+assert(sentRequests.every(r=>new Headers(r.headers).get('idempotency-key')));
+await captureInbound('test-inbound-'+suffix,{from:'sender@example.com',to:['team@'+domain],subject:'Inbound test',text:'Private to A'});
+const getReceived=token=>received(new Request(process.env.APP_BASE_URL+'/api/v1/received',{headers:{authorization:'Bearer '+token}}));
+assert.equal((await (await getReceived(keyA.secret)).json()).data.length,1);assert.equal((await (await getReceived(keyB.secret)).json()).data.length,0);
+await sql`INSERT INTO webhook_endpoints(organization_id,url,event_types,signing_secret) VALUES(${a},'https://hooks.example.org/email',ARRAY['email.sent'],'test-secret')`;
+await enqueueEvent(a,'email.sent','hook-'+suffix,{id:'test'});await enqueueEvent(a,'email.sent','hook-'+suffix,{id:'test'});await dispatchWebhooks(b);assert.equal(hookAttempts,0);await dispatchWebhooks(a);assert.equal(hookAttempts,1);
+await sql`UPDATE webhook_deliveries SET next_attempt_at=now() WHERE organization_id=${a}`;await dispatchWebhooks(a);assert.equal(hookAttempts,2);
+assert.equal((await sql`SELECT status FROM webhook_deliveries WHERE organization_id=${a}`)[0].status,'delivered');
+user=alice;assert.equal((await call('api-keys/'+keyA.id+'/revoke',{})).status,200);assert.equal((await send(keyA.secret,'revoked')).status,401);
+console.log('PASS: workspace creation/idempotence, customer isolation, approval/retry ownership, CSRF, domain ownership, API key revocation, sending idempotency, concurrent quota enforcement, inbound isolation, signed webhooks, duplicate event suppression, and webhook retry. No external email sent.');

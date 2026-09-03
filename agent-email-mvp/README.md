@@ -1,25 +1,26 @@
-# Governed Agent Email MVP
+# AgentMail developer preview
 
-Standalone application inside WickedOps-AI. The parent app and parent Sites project are separate and must not be deployed from this folder.
+Email API and isolated customer workspaces on Sites, Neon, and Resend. Sign in with ChatGPT and create a workspace. Existing ADMIN_EMAILS retain the original pilot workspace through the pinned legacy_organization setting; new customers own separate organizations.
 
-## Run
+## Available
+- Self-service workspace creation and workspace-scoped records, API keys, domains, agent actions, approval decisions, and retries.
+- Domain creation, DNS records, verification, and optional receiving setup without automatically changing DNS.
+- POST /api/v1/emails with Bearer credentials, required Idempotency-Key, domain ownership enforcement, provider deduplication, 23-hour retry limit, atomic monthly recipient allowance, and acceptance logs.
+- GET /api/v1/received returns the latest 100 workspace inbound messages.
+- HMAC-signed webhook deliveries, persistent attempts and backoff, duplicate suppression, and manual retries.
+- Existing governed agents, policies, approval queue, conversations, and audit trail.
+- Stripe Checkout, portal, and signature-verified subscription handler, disabled until configured for the dedicated AgentMail Stripe account.
 
-Install with npm ci. Configure .dev.vars using .env.example (never commit credentials). For local Sites sign-in set ADMIN_EMAILS=seedy@sites.test; use an isolated Neon branch. Run npm run dev -- --port 4311. Open /dashboard and use the normal local sign-in link.
+## Preview limits
+- One owner workspace per customer account; invitations and workspace switching are not implemented.
+- Free API allowance is 100 recipients per UTC calendar month. Pending/uncertain sends retain reserved allowance. Agent replies are separate.
+- Webhook retries are processed during API, inbound-provider, and dashboard requests. Always-on background scheduling is not configured. Failed events can be retried in the dashboard.
+- Inbound API returns a bounded list, without pagination or attachments. API sends support text, not templates or attachments.
+- Billing requires STRIPE_SECRET_KEY (prefer a restricted runtime key), STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET, and PAID_MONTHLY_LIMIT. Configure the Stripe endpoint /api/webhooks/stripe for customer.subscription.created, updated, and deleted. Paid plans stay disabled until all required values are present. Tax configuration must be reviewed for the dedicated business before charging customers.
 
-## Production
+## Validation
+- npm run typecheck
+- npm test
+- On an isolated migrated Neon branch only: set TEST_DATABASE_URL and run node --experimental-test-module-mocks --import tsx scripts/verify-customers.mjs. This tests actual route authorization, tenant isolation, duplicate sending, concurrent quota enforcement, inbound isolation, and signed webhook retry. Email-provider calls are intercepted, so it sends no real email.
 
-The public landing page is at /. The dashboard and every management API require Sites sign-in and an ADMIN_EMAILS allowlist match. The Resend webhook at /api/webhooks/resend is public and verifies Svix signatures. Secrets belong in Sites runtime settings.
-
-Keep DATABASE_URL pointed at AgentMail-Platform / agentmail. The additive migration migrations/002_dashboard_reliability.sql was tested on dashboard-validation before production. It adds unique message/proposal/decision indexes and processing/execution leases.
-
-## Product
-
-Create or edit agents, pause/resume, assign verified receiving addresses, configure exact recipient policies, inspect conversations, approve or reject exact reply text, retry failures, and read audit events. No matching policy requires human approval. Priority runs lowest first, then rule ID. Only send_email_reply is executable; no CRM, refunds, or other business actions are implemented. This is an administrator-only single-workspace MVP, not a multi-tenant service.
-
-## Reliability
-
-Incoming messages are deduplicated by provider ID. Messages received while paused are held and can be retried from Actions. Outbound messages use persistent execution claims plus Resend idempotency keys. A failed/uncertain send can be retried within 23 hours of its first attempt; later attempts require manual delivery reconciliation to avoid duplicate email. An approved-but-unsent action stays visible and retryable. Provider acceptance is separate from delivery; delivered/bounced/failed callbacks enter the audit trail. The application does not expose audit update/delete operations.
-
-## Verification
-
-Run npm test, npm run typecheck, and npm run build. scripts/verify-local.mjs exercises authentication, CSRF, agent lifecycle, policy edits, domain validation and audit against the isolated local test database. It creates test records. The build emits a Cloudflare Worker for Sites; archive only dist output, never .dev.vars or source credentials.
+The Sites project is retained in .openai/hosting.json. Keep secrets out of source control. migrations/004_customer_workspaces.sql is additive and preserves the existing pilot records.

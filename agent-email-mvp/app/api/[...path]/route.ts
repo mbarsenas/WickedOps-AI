@@ -1,14 +1,19 @@
 import { z } from 'zod';
 import { db,audit,organizationId } from '../../../lib/db';
-import { requireAdmin,errorResponse,HttpError } from '../../../lib/auth';
+import { requireWorkspace,errorResponse,HttpError } from '../../../lib/auth';
 import { mail,ingest,executeAction,address } from '../../../lib/email';
+import {billingConfigured} from '../../../lib/billing';
+import {refreshDomain} from '../../../lib/domains';
+import {publicWebhookUrl} from '../../../lib/webhook-signing';
+import {dispatchWebhooks} from '../../../lib/webhooks';
 export const dynamic='force-dynamic';
 const uuid=z.string().uuid();
 export async function GET(req:Request,{params}:{params:Promise<{path:string[]}>}){
- try{const user=await requireAdmin();const {path}=await params;const sql=db();const org=await organizationId();
+ try{const user=await requireWorkspace();const {path}=await params;const sql=db();const org=user.organization_id;
  const key=path.join('/');
  if(key==='state'){
- const [agents,identities,policies,conversations,approvals,actions,auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,stats]=await Promise.all([
+ await dispatchWebhooks(org);
+ const [agents,identities,policies,conversations,approvals,actions,auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,workspaceRows,usageRows,stats]=await Promise.all([
   sql`SELECT * FROM agents WHERE organization_id=${org} ORDER BY created_at DESC`,
   sql`SELECT e.*,a.name AS agent_name FROM email_identities e JOIN agents a ON a.id=e.agent_id WHERE a.organization_id=${org} ORDER BY e.created_at DESC`,
   sql`SELECT p.*,a.name AS agent_name FROM policies p JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} ORDER BY p.priority,p.id`,
@@ -16,25 +21,42 @@ export async function GET(req:Request,{params}:{params:Promise<{path:string[]}>}
   sql`SELECT ap.*,p.payload,p.rationale,p.conversation_id,p.status AS action_status,a.name AS agent_name FROM approvals ap JOIN proposed_actions p ON p.id=ap.proposed_action_id JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} ORDER BY ap.requested_at DESC LIMIT 200`,
   sql`SELECT p.*,a.name AS agent_name,d.decision,d.reason,e.last_error,e.provider_id,e.created_at AS first_send_at,(SELECT status FROM approvals WHERE proposed_action_id=p.id) AS approval_status FROM proposed_actions p JOIN agents a ON a.id=p.agent_id LEFT JOIN policy_decisions d ON d.proposed_action_id=p.id LEFT JOIN action_executions e ON e.action_id=p.id WHERE a.organization_id=${org} ORDER BY p.created_at DESC LIMIT 200`,
   sql`SELECT * FROM audit_events WHERE organization_id=${org} ORDER BY created_at DESC,id DESC LIMIT 200`,
-  sql`SELECT provider_message_id,status,attempts,last_error,created_at FROM email_jobs WHERE status IN('failed','held') ORDER BY created_at DESC LIMIT 50`,
+  sql`SELECT provider_message_id,status,attempts,last_error,created_at FROM email_jobs WHERE organization_id=${org} AND status IN('failed','held') ORDER BY created_at DESC LIMIT 50`,
   sql`SELECT id,name,key_prefix,last_used_at,created_at,revoked_at FROM api_keys WHERE organization_id=${org} ORDER BY created_at DESC`,
   sql`SELECT id,url,event_types,status,created_at FROM webhook_endpoints WHERE organization_id=${org} ORDER BY created_at DESC`,
   sql`SELECT * FROM email_api_events WHERE organization_id=${org} ORDER BY created_at DESC LIMIT 200`,
+  sql`SELECT id,name,monthly_limit,subscription_status FROM organizations WHERE id=${org}`,
+  sql`SELECT accepted,reserved,period FROM monthly_usage WHERE organization_id=${org} AND period=date_trunc('month',now())::date`,
   sql`SELECT (SELECT count(*)::int FROM agents WHERE organization_id=${org} AND status='active') AS active_agents,(SELECT count(*)::int FROM conversations c JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS conversations,(SELECT count(*)::int FROM approvals ap JOIN proposed_actions p ON p.id=ap.proposed_action_id JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND ap.status='pending') AS pending,(SELECT count(*)::int FROM proposed_actions p JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND p.status='executed') AS sent,(SELECT count(*)::int FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS email_events`
  ]);
- return Response.json({agents,identities,policies,conversations,approvals,actions,audit:auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,stats:stats[0],user:user.email,config:{database:true,resend:!!process.env.RESEND_API_KEY,ai:!!process.env.OPENAI_API_KEY,webhook:!!process.env.RESEND_WEBHOOK_SECRET,webhook_url:(process.env.APP_BASE_URL||'')+'/api/webhooks/resend',api_base:(process.env.APP_BASE_URL||'')+'/api/v1',model:process.env.OPENAI_MODEL||'gpt-5-mini'}},{headers:{'Cache-Control':'private, no-store'}});
+ return Response.json({agents,identities,policies,conversations,approvals,actions,audit:auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,workspace:workspaceRows[0],usage:usageRows[0]||{accepted:0,reserved:0},stats:stats[0],user:user.email,config:{billing:billingConfigured(),database:true,resend:!!process.env.RESEND_API_KEY,ai:!!process.env.OPENAI_API_KEY,webhook:!!process.env.RESEND_WEBHOOK_SECRET,webhook_url:(process.env.APP_BASE_URL||'')+'/api/webhooks/resend',api_base:(process.env.APP_BASE_URL||'')+'/api/v1',model:process.env.OPENAI_MODEL||'gpt-5-mini'}},{headers:{'Cache-Control':'private, no-store'}});
  }
  if(path[0]==='conversations'&&path[1]){
  const id=uuid.parse(path[1]);const rows=await sql`SELECT m.* FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE c.id=${id} AND a.organization_id=${org} ORDER BY m.created_at,m.id`;
  return Response.json({messages:rows},{headers:{'Cache-Control':'private, no-store'}});
  }
- if(key==='domains'){const response=await mail().domains.list();if(response.error)throw new Error(response.error.message);return Response.json(response.data);}
+ if(key==='domains'){return Response.json({data:await sql`SELECT * FROM sending_domains WHERE organization_id=${org} ORDER BY created_at DESC`});}
+ if(key==='webhook-deliveries')return Response.json({data:await sql`SELECT id,endpoint_id,event_type,status,attempts,last_status,created_at FROM webhook_deliveries WHERE organization_id=${org} ORDER BY created_at DESC LIMIT 100`});
  throw new HttpError(404,'Not found.');
  }catch(e){return errorResponse(e);}
 }
 export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>}){
  try{
- const user=await requireAdmin(req);const {path}=await params;const body=await req.json();const sql=db();const org=await organizationId();
+ const user=await requireWorkspace(req);const {path}=await params;const body=await req.json();const sql=db();const org=user.organization_id;
+ if(path[0]==='domains'&&path.length===1){
+  const b=z.object({name:z.string().trim().toLowerCase().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)}).parse(body);
+  const rows=await sql`INSERT INTO sending_domains(organization_id,name,status) VALUES(${org},${b.name},'provisioning') ON CONFLICT(name) DO NOTHING RETURNING *`;
+  if(!rows[0])throw new HttpError(409,'This domain is already registered.');
+  const result=await mail().domains.create({name:b.name,capabilities:{sending:'enabled',receiving:'disabled'}});
+  if(result.error||!result.data){await sql`UPDATE sending_domains SET status='setup_failed' WHERE id=${rows[0].id}`;throw new HttpError(502,'Domain setup failed. Contact the operator before retrying.');}
+  const d=result.data;const row=(await sql`UPDATE sending_domains SET provider_id=${d.id},status=${d.status},records=${JSON.stringify(d.records)}::jsonb WHERE id=${rows[0].id} RETURNING *`)[0];
+  await audit('domain.created',user.email,{id:row.id,name:b.name});return Response.json(row,{status:201});
+ }
+ if(path[0]==='domains'&&path[1]){
+  const id=uuid.parse(path[1]);
+  if(path[2]==='receiving'){const d=await refreshDomain(id,org);const result=await mail().domains.update({id:d.provider_id,capabilities:{receiving:'enabled'}});if(result.error)throw new HttpError(502,'Unable to enable receiving.');}
+  return Response.json(await refreshDomain(id,org,path[2]==='verify'));
+ }
  if(path[0]==='agents'&&path.length===1){
   const b=z.object({name:z.string().trim().min(2).max(100),instructions:z.string().trim().min(10).max(12000)}).parse(body);
   const slug=b.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+crypto.randomUUID().slice(0,8);
@@ -49,11 +71,10 @@ export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>
  if(path[0]==='identities'&&path.length===1){
   const b=z.object({agent_id:uuid,address:z.string().trim().email().max(254)}).parse(body);b.address=address(b.address);
   const agent=await sql`SELECT id FROM agents WHERE id=${b.agent_id} AND organization_id=${org}`;if(!agent[0])throw new HttpError(404,'Agent not found.');
-  const domains=await mail().domains.list();if(domains.error)throw new HttpError(502,'Unable to verify the sending domain.');
-  const domain=b.address.split('@')[1];const match=domains.data?.data.find(d=>d.name===domain&&d.status==='verified');
-  if(!match)throw new HttpError(400,'Use a verified Resend domain.');
-  const detail=await mail().domains.get(match.id);
-  if(detail.error||detail.data?.capabilities?.receiving!=='enabled')throw new HttpError(400,'Receiving must be enabled on this domain in Resend.');
+  const domain=b.address.split('@')[1];const match=(await sql`SELECT * FROM sending_domains WHERE organization_id=${org} AND name=${domain}`)[0];
+  if(!match)throw new HttpError(400,'Use a domain owned by this workspace.');
+  const detail=await refreshDomain(match.id,org);
+  if(detail.status!=='verified'||detail.receiving!=='enabled')throw new HttpError(400,'Verify this domain and enable receiving before assigning an identity.');
   const existing=await sql`SELECT id FROM email_identities WHERE lower(address)=${b.address}`;if(existing[0])throw new HttpError(409,'That identity is already assigned.');
   const row=(await sql`INSERT INTO email_identities(agent_id,address,provider_domain) VALUES(${b.agent_id},${b.address},${domain}) RETURNING *`)[0];
   await audit('identity.created',user.email,{address:b.address},b.agent_id);return Response.json(row,{status:201});
@@ -86,19 +107,23 @@ export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>
   if(!row)throw new HttpError(404,'Active API key not found.');await audit('api_key.revoked',user.email,{id});return Response.json(row);
  }
  if(path[0]==='webhook-endpoints'&&path.length===1){
-  const b=z.object({url:z.string().url().refine(v=>v.startsWith('https://'),'Use an HTTPS URL.'),event_types:z.array(z.enum(['email.received','email.sent','email.failed'])).min(1)}).parse(body);
-  const row=(await sql`INSERT INTO webhook_endpoints(organization_id,url,event_types) VALUES(${org},${b.url},${b.event_types}) RETURNING id,url,event_types,status,created_at`)[0];
+  const b=z.object({url:z.string().url().refine(v=>{try{publicWebhookUrl(v);return true;}catch{return false;}},'Use a public HTTPS URL.'),event_types:z.array(z.enum(['email.received','email.sent','email.delivered','email.bounced','email.failed'])).min(1)}).parse(body);
+  const row=(await sql`INSERT INTO webhook_endpoints(organization_id,url,event_types) VALUES(${org},${publicWebhookUrl(b.url)},${b.event_types}) RETURNING id,url,event_types,status,created_at,signing_secret`)[0];
   await audit('webhook_endpoint.created',user.email,{id:row.id,url:b.url});return Response.json(row,{status:201});
  }
  if(path[0]==='webhook-endpoints'&&path[1]){
   const id=uuid.parse(path[1]);const b=z.object({status:z.enum(['active','disabled'])}).parse(body);const row=(await sql`UPDATE webhook_endpoints SET status=${b.status} WHERE id=${id} AND organization_id=${org} RETURNING *`)[0];
-  if(!row)throw new HttpError(404,'Webhook endpoint not found.');await audit('webhook_endpoint.updated',user.email,{id,status:b.status});return Response.json(row);
+  if(!row)throw new HttpError(404,'Webhook endpoint not found.');await audit('webhook_endpoint.updated',user.email,{id,status:b.status});return Response.json({id:row.id,status:row.status});
+ }
+ if(path[0]==='webhook-deliveries'&&path[1]&&path[2]==='retry'){
+  const id=uuid.parse(path[1]);const changed=await sql`UPDATE webhook_deliveries SET status='pending',attempts=0,next_attempt_at=now() WHERE id=${id} AND organization_id=${org} AND status<>'delivered' AND (lease_until IS NULL OR lease_until<now()) RETURNING id`;
+  if(!changed[0])throw new HttpError(404,'Retryable delivery not found.');await dispatchWebhooks(org);return Response.json({ok:true});
  }
  if(path[0]==='actions'&&path[2]==='retry'){
-  const id=uuid.parse(path[1]);return Response.json(await executeAction(id,user.email));
+  const id=uuid.parse(path[1]);const owned=await sql`SELECT p.id FROM proposed_actions p JOIN agents a ON a.id=p.agent_id WHERE p.id=${id} AND a.organization_id=${org}`;if(!owned[0])throw new HttpError(404,'Action not found.');return Response.json(await executeAction(id,user.email));
  }
  if(path[0]==='jobs'&&path[1]==='retry'){
-  const b=z.object({provider_message_id:uuid}).parse(body);await audit('email.retry_requested',user.email,b);return Response.json(await ingest(b.provider_message_id));
+  const b=z.object({provider_message_id:uuid}).parse(body);const owned=await sql`SELECT provider_message_id FROM email_jobs WHERE provider_message_id=${b.provider_message_id} AND organization_id=${org}`;if(!owned[0])throw new HttpError(404,'Message not found.');await audit('email.retry_requested',user.email,b);return Response.json(await ingest(b.provider_message_id));
  }
  throw new HttpError(404,'Not found.');
  }catch(e){return errorResponse(e);}

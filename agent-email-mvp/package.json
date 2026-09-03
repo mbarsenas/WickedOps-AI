@@ -16,21 +16,22 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^6.0.0",
+    "stripe": "22.4.0",
     "svix": "^1.68.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@openai/sites-vite-plugin": "0.2.0",
-    "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "@vitejs/plugin-rsc": "0.5.26",
-    "@vitejs/plugin-react": "6.0.2",
-    "tsx": "^4.21.0",
-    "@types/react-dom": "^19.0.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
-    "typescript": "^5.9.0"
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0",
+    "vinext": "0.0.50",
+    "vite": "8.0.13"
   },
   "type": "module"
 }
