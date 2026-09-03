@@ -1,30 +1,16 @@
-import { sql } from './db';
-
-export type Decision = 'allow' | 'require_approval' | 'block';
-
-export async function evaluatePolicy(agentId: string, actionType: string, payload: Record<string, unknown>) {
-  const policies = await sql`
-    SELECT id, name, effect, condition_json, priority
-    FROM policies
-    WHERE agent_id = ${agentId} AND enabled = true AND action_type = ${actionType}
-    ORDER BY priority ASC
-  `;
-
-  for (const policy of policies) {
-    const condition = (policy.condition_json ?? {}) as Record<string, unknown>;
-    const matches = Object.entries(condition).every(([key, expected]) => payload[key] === expected);
-    if (matches) {
-      return {
-        decision: policy.effect as Decision,
-        policyId: policy.id as string,
-        reason: `Matched policy: ${policy.name}`,
-      };
-    }
-  }
-
-  return {
-    decision: 'require_approval' as Decision,
-    policyId: null,
-    reason: 'No matching policy; defaulting to human approval',
-  };
+import { db } from './db';
+export type Decision='allow'|'require_approval'|'block';
+export type Rule={id:string;name:string;effect:Decision;condition_json:Record<string,unknown>;priority:number};
+export function decide(policies: Rule[], payload: Record<string,unknown>) {
+ for(const p of [...policies].sort((a,b)=>a.priority-b.priority || a.id.localeCompare(b.id))){
+  if(Object.entries(p.condition_json??{}).every(([k,v])=>Object.hasOwn(payload,k)&&payload[k]===v))
+   return {decision:p.effect,policyId:p.id,reason:'Matched policy: '+p.name};
+ }
+ return {decision:'require_approval' as Decision,policyId:null,reason:'No matching policy; human approval is required.'};
 }
+export async function evaluatePolicy(agentId:string,actionType:string,payload:Record<string,unknown>){
+ const sql=db();
+ const rows=await sql`SELECT id,name,effect,condition_json,priority FROM policies WHERE agent_id=${agentId} AND action_type=${actionType} AND enabled=true ORDER BY priority,id`;
+ return decide(rows as Rule[],payload);
+}
+

@@ -1,36 +1,25 @@
 # Governed Agent Email MVP
 
-Core product thesis:
+Standalone application inside WickedOps-AI. The parent app and parent Sites project are separate and must not be deployed from this folder.
 
-`AI Agent -> Email Identity -> Policy -> Send/Receive -> Conversation -> Actions -> Audit`
+## Run
 
-This vertical slice uses Resend for transport and Neon Postgres for durable state. It supports inbound-message ingestion, conversation persistence, proposed agent actions, policy decisions (`allow`, `require_approval`, `block`), approvals, execution, and append-only audit events.
+Install with npm ci. Configure .dev.vars using .env.example (never commit credentials). For local Sites sign-in set ADMIN_EMAILS=seedy@sites.test; use an isolated Neon branch. Run npm run dev -- --port 4311. Open /dashboard and use the normal local sign-in link.
 
-## End-to-end flow
+## Production
 
-1. Resend posts `email.received` to `/api/webhooks/resend`.
-2. The app resolves the recipient to an email identity and agent.
-3. The message is persisted and attached to a conversation.
-4. The agent runtime produces a proposed `send_email_reply` action.
-5. The policy engine evaluates matching rules by priority.
-6. `allow` executes immediately, `require_approval` creates a pending approval, and `block` records the denial.
-7. Every transition is written to `audit_events`.
+The public landing page is at /. The dashboard and every management API require Sites sign-in and an ADMIN_EMAILS allowlist match. The Resend webhook at /api/webhooks/resend is public and verifies Svix signatures. Secrets belong in Sites runtime settings.
 
-## Environment
+Keep DATABASE_URL pointed at AgentMail-Platform / agentmail. The additive migration migrations/002_dashboard_reliability.sql was tested on dashboard-validation before production. It adds unique message/proposal/decision indexes and processing/execution leases.
 
-- `DATABASE_URL`
-- `RESEND_API_KEY`
-- `RESEND_WEBHOOK_SECRET`
-- `OPENAI_API_KEY`
-- `APP_BASE_URL`
+## Product
 
-## MVP API
+Create or edit agents, pause/resume, assign verified receiving addresses, configure exact recipient policies, inspect conversations, approve or reject exact reply text, retry failures, and read audit events. No matching policy requires human approval. Priority runs lowest first, then rule ID. Only send_email_reply is executable; no CRM, refunds, or other business actions are implemented. This is an administrator-only single-workspace MVP, not a multi-tenant service.
 
-- `POST /api/webhooks/resend`
-- `GET /api/agents`
-- `POST /api/agents`
-- `GET /api/conversations`
-- `GET /api/approvals`
-- `POST /api/approvals/:id/approve`
-- `POST /api/approvals/:id/reject`
-- `GET /api/audit`
+## Reliability
+
+Incoming messages are deduplicated by provider ID. Messages received while paused are held and can be retried from Actions. Outbound messages use persistent execution claims plus Resend idempotency keys. A failed/uncertain send can be retried within 23 hours of its first attempt; later attempts require manual delivery reconciliation to avoid duplicate email. An approved-but-unsent action stays visible and retryable. Provider acceptance is separate from delivery; delivered/bounced/failed callbacks enter the audit trail. The application does not expose audit update/delete operations.
+
+## Verification
+
+Run npm test, npm run typecheck, and npm run build. scripts/verify-local.mjs exercises authentication, CSRF, agent lifecycle, policy edits, domain validation and audit against the isolated local test database. It creates test records. The build emits a Cloudflare Worker for Sites; archive only dist output, never .dev.vars or source credentials.
