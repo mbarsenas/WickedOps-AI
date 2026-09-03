@@ -1,0 +1,23 @@
+name: AgentMail webhook retries
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: agentmail-webhook-retries
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Deliver due AgentMail webhook events
+        env:
+          SCHEDULER_SECRET: ${{ secrets.AGENTMAIL_WEBHOOK_SCHEDULER_SECRET }}
+        run: |
+          test -n "$SCHEDULER_SECRET"
+          curl --fail-with-body --silent --show-error --max-time 90 \
+            --request POST \
+            --header "Authorization: Bearer $SCHEDULER_SECRET" \
+            https://governed-agent-email.markbarsenas366.chatgpt.site/api/internal/webhook-dispatch
