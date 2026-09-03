@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {mock} from 'node:test';
+import Stripe from 'stripe';
+const verifier=new Stripe('sk_test_local_verification');
 if(!process.env.TEST_DATABASE_URL)throw new Error('An isolated test database is required');
 process.env.DATABASE_URL=process.env.TEST_DATABASE_URL;
 process.env.APP_BASE_URL='https://platform.example.com';
@@ -11,7 +13,7 @@ class StripeMock{
  billingPortal={sessions:{create:async p=>{assert.equal(p.customer,customer);return {url:'https://billing.stripe.com/test'};}}};
  checkout={sessions:{list:async()=>({data:[]}),create:async(p,o)=>{requests.push({p,o});return {url:'https://checkout.stripe.com/test'};}}};
  subscriptions={list:async()=>({data:[]}),retrieve:async()=>({id:'sub_test',customer,status,metadata:{organization_id:subscriptionOrg},items:{data:[{price:{id:'price_starter'}}]}})};
- webhooks={constructEventAsync:async(raw,signature)=>{if(signature!=='valid')throw Error('Invalid');return {type:'customer.subscription.updated',created,data:{object:{id:'sub_test'}}};}};
+ webhooks=verifier.webhooks;
 }
 mock.module('stripe',{defaultExport:StripeMock});
 mock.module(new URL('../app/chatgpt-auth.ts',import.meta.url).href,{namedExports:{getChatGPTUser:async()=>user}});
@@ -22,13 +24,15 @@ const {POST:webhook}=await import('../app/api/webhooks/stripe/route.ts');
 const request=()=>new Request(process.env.APP_BASE_URL+'/api/billing/checkout',{method:'POST',headers:{'content-type':'application/json',origin:process.env.APP_BASE_URL},body:JSON.stringify({price:'untrusted',customer:'untrusted'})});
 for(let i=0;i<2;i++)assert.equal((await billing(request(),{params:Promise.resolve({action:'checkout'})})).status,200);
 assert.deepEqual(requests[0],requests[1]);assert.equal(requests[0].p.line_items[0].price,'price_starter');assert.equal(requests[0].p.customer,customer);
-const send=signature=>webhook(new Request('https://platform.example.com/api/webhooks/stripe',{method:'POST',headers:{'stripe-signature':signature},body:'{}'}));
+const send=signature=>{const body=JSON.stringify({id:'evt_'+created,object:'event',type:'customer.subscription.updated',created,data:{object:{id:'sub_test'}}});const signed=signature==='valid'?verifier.webhooks.generateTestHeaderString({payload:body,secret:process.env.STRIPE_WEBHOOK_SECRET}):signature;return webhook(new Request('https://platform.example.com/api/webhooks/stripe',{method:'POST',headers:{'stripe-signature':signed},body}));};
 assert.equal((await send('invalid')).status,401);assert.equal((await send('valid')).status,200);
 assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,10000);
 assert.equal((await billing(request(),{params:Promise.resolve({action:'checkout'})})).status,409);
 assert.equal((await billing(request(),{params:Promise.resolve({action:'portal'})})).status,200);
-status='canceled';created=101;assert.equal((await send('valid')).status,200);
+status='past_due';created=101;await send('valid');assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,100);
+status='active';created=102;await send('valid');assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,10000);
+status='canceled';created=103;assert.equal((await send('valid')).status,200);
 assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,100);
 status='active';created=99;await send('valid');assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,100);
-subscriptionOrg=crypto.randomUUID();created=102;await send('valid');assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,100);
-console.log('PASS: configured price/customer, stable checkout retries, portal ownership, signature rejection, activation, cancellation, stale events, and cross-workspace metadata rejection. Stripe mocked; no charges.');
+subscriptionOrg=crypto.randomUUID();created=104;await send('valid');assert.equal((await sql`SELECT monthly_limit FROM organizations WHERE id=${org}`)[0].monthly_limit,100);
+console.log('PASS: configured price/customer, stable checkout retries, portal ownership, signature rejection, activation, failed-payment downgrade, payment recovery, cancellation, stale events, and cross-workspace metadata rejection. Real Stripe signature verification; subscription responses simulated; no charges.');
