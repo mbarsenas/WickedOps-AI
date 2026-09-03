@@ -1,3 +1,4 @@
+import {AIDraftingLimit} from './ai-usage';
 import { Resend } from 'resend';
 import { db, audit } from './db';
 import { evaluatePolicy } from './policy';
@@ -80,7 +81,7 @@ export async function ingest(providerId:string){
     return {ok:true,held:true};
    }
    const history=await sql`SELECT direction,text_body FROM messages WHERE conversation_id=${conversationId} ORDER BY created_at DESC LIMIT 15`;
-   const proposal=await proposeReply({instructions:identity.instructions,subject:email.subject,sender:from,message:email.text||String(email.html||'').replace(/<[^>]*>/g,' '),history:JSON.stringify(history.reverse())});
+   const proposal=await proposeReply({organizationId:identity.organization_id,instructions:identity.instructions,subject:email.subject,sender:from,message:email.text||String(email.html||'').replace(/<[^>]*>/g,' '),history:JSON.stringify(history.reverse())});
    const payload={from:identity.address,to:from,subject:/^re:/i.test(email.subject)?email.subject:'Re: '+email.subject,text:proposal.reply_text,headers:{'In-Reply-To':email.message_id,'References':[rootReference,email.message_id].filter(Boolean).join(' '),'Auto-Submitted':'auto-replied'}};
    action=(await sql`INSERT INTO proposed_actions(conversation_id,agent_id,source_message_id,action_type,payload,rationale) VALUES(${conversationId},${identity.id},${messageId},'send_email_reply',${JSON.stringify(payload)}::jsonb,${proposal.rationale}) ON CONFLICT(source_message_id) WHERE source_message_id IS NOT NULL DO UPDATE SET source_message_id=EXCLUDED.source_message_id RETURNING *`)[0];
   }
@@ -98,6 +99,7 @@ export async function ingest(providerId:string){
   await sql`UPDATE email_jobs SET status='done',lease_until=NULL,last_error=NULL WHERE provider_message_id=${providerId}`;
   return {ok:true,conversation_id:conversationId,action_id:action.id,decision:decision.decision};
  }catch(e){
+  if(e instanceof AIDraftingLimit){await sql`UPDATE email_jobs SET status='held',lease_until=NULL,last_error=${e.message} WHERE provider_message_id=${providerId}`;return {ok:true,held:true};}
   await sql`UPDATE email_jobs SET status='failed',lease_until=NULL,last_error=${e instanceof Error?e.message.slice(0,500):'Processing failed'} WHERE provider_message_id=${providerId}`;
   throw e;
  }

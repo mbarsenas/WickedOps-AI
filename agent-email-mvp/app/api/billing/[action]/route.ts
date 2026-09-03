@@ -11,7 +11,7 @@ export async function POST(req:Request,{params}:{params:Promise<{action:string}>
   if(['active','trialing'].includes(org.subscription_status))throw new HttpError(409,'Use Manage billing to change your existing subscription.');
   const subscriptions=await stripe.subscriptions.list({customer,status:'all',limit:100});if(subscriptions.data.some(s=>['active','trialing','past_due'].includes(s.status)))throw new HttpError(409,'Use Manage billing for the existing subscription.');
   const open=await stripe.checkout.sessions.list({customer,status:'open',limit:1});if(open.data[0]?.url)return Response.json({url:open.data[0].url});
-  const suffix=Array.from(crypto.getRandomValues(new Uint8Array(8))).map(n=>String.fromCharCode(97+n%26)).join('');
+  const suffix=org.id.replace(/-/g,'').slice(0,8).split('').map((n:string)=>String.fromCharCode(97+parseInt(n,16))).join('');
   const session=await stripe.checkout.sessions.create({mode:'subscription',customer,client_reference_id:org.id,line_items:[{price:process.env.STRIPE_PRICE_ID!,quantity:1}],subscription_data:{metadata:{organization_id:org.id}},success_url:base+'/dashboard?billing=success',cancel_url:base+'/dashboard?billing=cancelled',integration_identifier:'agentmail_'+suffix},{idempotencyKey:'agentmail/checkout/'+org.id+'/'+Math.floor(Date.now()/3600000)});
   return Response.json({url:session.url});
  }catch(e){return errorResponse(e);}

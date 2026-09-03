@@ -63,7 +63,19 @@ const getReceived=token=>received(new Request(process.env.APP_BASE_URL+'/api/v1/
 assert.equal((await (await getReceived(keyA.secret)).json()).data.length,1);assert.equal((await (await getReceived(keyB.secret)).json()).data.length,0);
 await sql`INSERT INTO webhook_endpoints(organization_id,url,event_types,signing_secret) VALUES(${a},'https://hooks.example.org/email',ARRAY['email.sent'],'test-secret')`;
 await enqueueEvent(a,'email.sent','hook-'+suffix,{id:'test'});await enqueueEvent(a,'email.sent','hook-'+suffix,{id:'test'});await dispatchWebhooks(b);assert.equal(hookAttempts,0);await dispatchWebhooks(a);assert.equal(hookAttempts,1);
-await sql`UPDATE webhook_deliveries SET next_attempt_at=now() WHERE organization_id=${a}`;await dispatchWebhooks(a);assert.equal(hookAttempts,2);
+await sql`UPDATE webhook_deliveries SET next_attempt_at=now() WHERE organization_id=${a}`;const {runWebhookSchedule,schedulerAuthorized}=await import('../lib/scheduler.ts');
+process.env.WEBHOOK_SCHEDULER_SECRET='test-scheduler-secret';assert.equal(await schedulerAuthorized(null),false);assert.equal(await schedulerAuthorized('Bearer wrong'),false);assert.equal(await schedulerAuthorized('Bearer test-scheduler-secret'),true);
+await runWebhookSchedule();assert.equal(hookAttempts,2);
 assert.equal((await sql`SELECT status FROM webhook_deliveries WHERE organization_id=${a}`)[0].status,'delivered');
 user=alice;assert.equal((await call('api-keys/'+keyA.id+'/revoke',{})).status,200);assert.equal((await send(keyA.secret,'revoked')).status,401);
 console.log('PASS: workspace creation/idempotence, customer isolation, approval/retry ownership, CSRF, domain ownership, API key revocation, sending idempotency, concurrent quota enforcement, inbound isolation, signed webhooks, duplicate event suppression, and webhook retry. No external email sent.');
+
+const {aiUsage,reserveDraft,recordDraft,AIDraftingLimit}=await import('../lib/ai-usage.ts');
+assert.equal((await aiUsage(a)).monthly_limit,0);
+await assert.rejects(()=>reserveDraft(a),AIDraftingLimit);
+await sql`INSERT INTO app_settings(key,value) VALUES(${'ai_allowance/'+a},'{"monthly_limit":1}'::jsonb)`;
+const drafts=await Promise.allSettled([reserveDraft(a),reserveDraft(a)]);
+assert.equal(drafts.filter(d=>d.status==='fulfilled').length,1);
+const meter=drafts.find(d=>d.status==='fulfilled').value;await recordDraft(meter,123,45);
+const ai=await aiUsage(a);assert.equal(ai.requests,1);assert.equal(ai.input_tokens,123);assert.equal(ai.output_tokens,45);assert.equal((await aiUsage(b)).requests,0);
+console.log('PASS: scheduler authorization and persisted background retry; concurrent AI allowance and isolated token metering.');

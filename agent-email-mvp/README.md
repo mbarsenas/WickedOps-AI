@@ -14,7 +14,7 @@ Email API and isolated customer workspaces on Sites, Neon, and Resend. Sign in w
 ## Preview limits
 - One owner workspace per customer account; invitations and workspace switching are not implemented.
 - Free API allowance is 100 recipients per UTC calendar month. Pending/uncertain sends retain reserved allowance. Agent replies are separate.
-- Webhook retries are processed during API, inbound-provider, and dashboard requests. Always-on background scheduling is not configured. Failed events can be retried in the dashboard.
+- Webhook retries are processed during API, inbound-provider, and dashboard requests. A GitHub Actions scheduler also invokes the protected dispatcher every five minutes. Scheduling is best effort and GitHub can delay or skip runs. Public-repository schedules can be disabled after 60 days without repository activity; monitor webhook_scheduler_status in app_settings. Failed events can be retried in the dashboard.
 - Inbound API returns a bounded list, without pagination or attachments. API sends support text, not templates or attachments.
 - Billing requires STRIPE_SECRET_KEY (prefer a restricted runtime key), STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET, and PAID_MONTHLY_LIMIT. Configure the Stripe endpoint /api/webhooks/stripe for customer.subscription.created, updated, and deleted. Paid plans stay disabled until all required values are present. Tax configuration must be reviewed for the dedicated business before charging customers.
 
@@ -24,3 +24,9 @@ Email API and isolated customer workspaces on Sites, Neon, and Resend. Sign in w
 - On an isolated migrated Neon branch only: set TEST_DATABASE_URL and run node --experimental-test-module-mocks --import tsx scripts/verify-customers.mjs. This tests actual route authorization, tenant isolation, duplicate sending, concurrent quota enforcement, inbound isolation, and signed webhook retry. Email-provider calls are intercepted, so it sends no real email.
 
 The Sites project is retained in .openai/hosting.json. Keep secrets out of source control. migrations/004_customer_workspaces.sql is additive and preserves the existing pilot records.
+
+## Starter and AI drafting
+Starter is $20/month for 10,000 API email recipients per UTC calendar month; governance features are included. AI drafting is separate and never automatically billed. New workspaces start with no AI allocation; the existing pilot retains 100 draft attempts/month. Operators can allocate a monthly_limit using app_settings key ai_allowance/<organization UUID>. Attempts reserve atomically, including failed calls; provider-reported input/output tokens are metered separately. Exhausted drafting holds inbound agent jobs for review. Counters reset by UTC month without deleting history.
+
+## Background delivery
+The operations/agentmail-webhooks.yml workflow is installed as .github/workflows/agentmail-webhooks.yml on the repository default branch. Set AGENTMAIL_WEBHOOK_SCHEDULER_SECRET in GitHub Actions to the same value as Sites WEBHOOK_SCHEDULER_SECRET. POST /api/internal/webhook-dispatch requires this bearer secret. Each run handles at most two workspaces (five deliveries each), with a database lease preventing overlapping runs. This preview needs higher-capacity scheduling before sustained production volume.
