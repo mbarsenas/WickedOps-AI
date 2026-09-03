@@ -8,7 +8,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path:string[]}>}
  try{const user=await requireAdmin();const {path}=await params;const sql=db();const org=await organizationId();
  const key=path.join('/');
  if(key==='state'){
- const [agents,identities,policies,conversations,approvals,actions,auditRows,jobs,stats]=await Promise.all([
+ const [agents,identities,policies,conversations,approvals,actions,auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,stats]=await Promise.all([
   sql`SELECT * FROM agents WHERE organization_id=${org} ORDER BY created_at DESC`,
   sql`SELECT e.*,a.name AS agent_name FROM email_identities e JOIN agents a ON a.id=e.agent_id WHERE a.organization_id=${org} ORDER BY e.created_at DESC`,
   sql`SELECT p.*,a.name AS agent_name FROM policies p JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} ORDER BY p.priority,p.id`,
@@ -17,9 +17,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path:string[]}>}
   sql`SELECT p.*,a.name AS agent_name,d.decision,d.reason,e.last_error,e.provider_id,e.created_at AS first_send_at,(SELECT status FROM approvals WHERE proposed_action_id=p.id) AS approval_status FROM proposed_actions p JOIN agents a ON a.id=p.agent_id LEFT JOIN policy_decisions d ON d.proposed_action_id=p.id LEFT JOIN action_executions e ON e.action_id=p.id WHERE a.organization_id=${org} ORDER BY p.created_at DESC LIMIT 200`,
   sql`SELECT * FROM audit_events WHERE organization_id=${org} ORDER BY created_at DESC,id DESC LIMIT 200`,
   sql`SELECT provider_message_id,status,attempts,last_error,created_at FROM email_jobs WHERE status IN('failed','held') ORDER BY created_at DESC LIMIT 50`,
-  sql`SELECT (SELECT count(*)::int FROM agents WHERE organization_id=${org} AND status='active') AS active_agents,(SELECT count(*)::int FROM conversations c JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS conversations,(SELECT count(*)::int FROM approvals ap JOIN proposed_actions p ON p.id=ap.proposed_action_id JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND ap.status='pending') AS pending,(SELECT count(*)::int FROM proposed_actions p JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND p.status='executed') AS sent`
+  sql`SELECT id,name,key_prefix,last_used_at,created_at,revoked_at FROM api_keys WHERE organization_id=${org} ORDER BY created_at DESC`,
+  sql`SELECT id,url,event_types,status,created_at FROM webhook_endpoints WHERE organization_id=${org} ORDER BY created_at DESC`,
+  sql`SELECT * FROM email_api_events WHERE organization_id=${org} ORDER BY created_at DESC LIMIT 200`,
+  sql`SELECT (SELECT count(*)::int FROM agents WHERE organization_id=${org} AND status='active') AS active_agents,(SELECT count(*)::int FROM conversations c JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS conversations,(SELECT count(*)::int FROM approvals ap JOIN proposed_actions p ON p.id=ap.proposed_action_id JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND ap.status='pending') AS pending,(SELECT count(*)::int FROM proposed_actions p JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND p.status='executed') AS sent,(SELECT count(*)::int FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS email_events`
  ]);
- return Response.json({agents,identities,policies,conversations,approvals,actions,audit:auditRows,jobs,stats:stats[0],user:user.email,config:{database:true,resend:!!process.env.RESEND_API_KEY,ai:!!process.env.OPENAI_API_KEY,webhook:!!process.env.RESEND_WEBHOOK_SECRET,webhook_url:(process.env.APP_BASE_URL||'')+'/api/webhooks/resend',model:process.env.OPENAI_MODEL||'gpt-5-mini'}},{headers:{'Cache-Control':'private, no-store'}});
+ return Response.json({agents,identities,policies,conversations,approvals,actions,audit:auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,stats:stats[0],user:user.email,config:{database:true,resend:!!process.env.RESEND_API_KEY,ai:!!process.env.OPENAI_API_KEY,webhook:!!process.env.RESEND_WEBHOOK_SECRET,webhook_url:(process.env.APP_BASE_URL||'')+'/api/webhooks/resend',api_base:(process.env.APP_BASE_URL||'')+'/api/v1',model:process.env.OPENAI_MODEL||'gpt-5-mini'}},{headers:{'Cache-Control':'private, no-store'}});
  }
  if(path[0]==='conversations'&&path[1]){
  const id=uuid.parse(path[1]);const rows=await sql`SELECT m.* FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE c.id=${id} AND a.organization_id=${org} ORDER BY m.created_at,m.id`;
@@ -71,6 +74,25 @@ export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>
   const id=uuid.parse(path[1]);const b=z.object({enabled:z.boolean()}).parse(body);
   const row=(await sql`UPDATE policies p SET enabled=${b.enabled} FROM agents a WHERE p.id=${id} AND a.id=p.agent_id AND a.organization_id=${org} RETURNING p.*`)[0];
   if(!row)throw new HttpError(404,'Policy not found.');await audit('policy.updated',user.email,{id,enabled:b.enabled},row.agent_id);return Response.json(row);
+ }
+ if(path[0]==='api-keys'&&path.length===1){
+  const b=z.object({name:z.string().trim().min(2).max(80)}).parse(body);const secret='am_live_'+crypto.randomUUID().replaceAll('-','')+crypto.randomUUID().replaceAll('-','');
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secret));const hash=Array.from(new Uint8Array(digest)).map(v=>v.toString(16).padStart(2,'0')).join('');
+  const row=(await sql`INSERT INTO api_keys(organization_id,name,key_prefix,key_hash) VALUES(${org},${b.name},${secret.slice(0,15)},${hash}) RETURNING id,name,key_prefix,created_at`)[0];
+  await audit('api_key.created',user.email,{id:row.id,name:b.name});return Response.json({...row,secret},{status:201});
+ }
+ if(path[0]==='api-keys'&&path[1]&&path[2]==='revoke'){
+  const id=uuid.parse(path[1]);const row=(await sql`UPDATE api_keys SET revoked_at=now() WHERE id=${id} AND organization_id=${org} AND revoked_at IS NULL RETURNING id`)[0];
+  if(!row)throw new HttpError(404,'Active API key not found.');await audit('api_key.revoked',user.email,{id});return Response.json(row);
+ }
+ if(path[0]==='webhook-endpoints'&&path.length===1){
+  const b=z.object({url:z.string().url().refine(v=>v.startsWith('https://'),'Use an HTTPS URL.'),event_types:z.array(z.enum(['email.received','email.sent','email.failed'])).min(1)}).parse(body);
+  const row=(await sql`INSERT INTO webhook_endpoints(organization_id,url,event_types) VALUES(${org},${b.url},${b.event_types}) RETURNING id,url,event_types,status,created_at`)[0];
+  await audit('webhook_endpoint.created',user.email,{id:row.id,url:b.url});return Response.json(row,{status:201});
+ }
+ if(path[0]==='webhook-endpoints'&&path[1]){
+  const id=uuid.parse(path[1]);const b=z.object({status:z.enum(['active','disabled'])}).parse(body);const row=(await sql`UPDATE webhook_endpoints SET status=${b.status} WHERE id=${id} AND organization_id=${org} RETURNING *`)[0];
+  if(!row)throw new HttpError(404,'Webhook endpoint not found.');await audit('webhook_endpoint.updated',user.email,{id,status:b.status});return Response.json(row);
  }
  if(path[0]==='actions'&&path[2]==='retry'){
   const id=uuid.parse(path[1]);return Response.json(await executeAction(id,user.email));
