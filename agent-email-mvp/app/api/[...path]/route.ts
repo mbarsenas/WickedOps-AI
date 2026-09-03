@@ -5,7 +5,7 @@ import { db,audit,organizationId } from '../../../lib/db';
 import { requireWorkspace,errorResponse,HttpError } from '../../../lib/auth';
 import { mail,ingest,executeAction,address } from '../../../lib/email';
 import {billingConfigured} from '../../../lib/billing';
-import {refreshDomain} from '../../../lib/domains';
+import {refreshDomain,addDomain} from '../../../lib/domains';
 import {publicWebhookUrl} from '../../../lib/webhook-signing';
 import {dispatchWebhooks} from '../../../lib/webhooks';
 export const dynamic='force-dynamic';
@@ -47,12 +47,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>
  const user=await requireWorkspace(req);const {path}=await params;const body=await req.json();const sql=db();const org=user.organization_id;
  if(path[0]==='domains'&&path.length===1){
   const b=z.object({name:z.string().trim().toLowerCase().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)}).parse(body);
-  const rows=await sql`INSERT INTO sending_domains(organization_id,name,status) VALUES(${org},${b.name},'provisioning') ON CONFLICT(name) DO NOTHING RETURNING *`;
-  if(!rows[0])throw new HttpError(409,'This domain is already registered.');
-  const result=await mail().domains.create({name:b.name,capabilities:{sending:'enabled',receiving:'disabled'}});
-  if(result.error||!result.data){await sql`UPDATE sending_domains SET status='setup_failed' WHERE id=${rows[0].id}`;throw new HttpError(502,'Domain setup failed. Contact the operator before retrying.');}
-  const d=result.data;const row=(await sql`UPDATE sending_domains SET provider_id=${d.id},status=${d.status},records=${JSON.stringify(d.records)}::jsonb WHERE id=${rows[0].id} RETURNING *`)[0];
-  await audit('domain.created',user.email,{id:row.id,name:b.name});return Response.json(row,{status:201});
+  const row=await addDomain(b.name,org);await audit('domain.setup_requested',user.email,{id:row.id,name:b.name},null,null,org);return Response.json(row,{status:201});
  }
  if(path[0]==='domains'&&path[1]){
   const id=uuid.parse(path[1]);

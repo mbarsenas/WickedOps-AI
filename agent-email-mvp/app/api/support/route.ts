@@ -1,0 +1,11 @@
+import {z} from 'zod';
+import {db} from '../../../lib/db';
+import {requireUser,errorResponse,HttpError,isAdmin} from '../../../lib/auth';
+export async function GET(){try{const u=await requireUser();const sql=db();const admin=isAdmin(u.email);return Response.json({admin,requests:await sql`SELECT id,category,subject,message,status,reply,created_at,updated_at,requester_email FROM support_requests WHERE requester_email=${u.email} OR ${admin} ORDER BY created_at DESC LIMIT 100`},{headers:{'Cache-Control':'private, no-store'}});}catch(e){return errorResponse(e);}}
+export async function POST(req:Request){try{const u=await requireUser(req);const raw=await req.text();if(raw.length>15000)throw new HttpError(413,'Please shorten your message.');const body=JSON.parse(raw);const sql=db();
+ if(body.action==='reply'){if(!isAdmin(u.email))throw new HttpError(403,'Operator access required.');const b=z.object({id:z.string().uuid(),reply:z.string().trim().min(1).max(6000),status:z.enum(['open','resolved'])}).parse(body);const r=await sql`UPDATE support_requests SET reply=${b.reply},status=${b.status},updated_at=now() WHERE id=${b.id} RETURNING id`;if(!r[0])throw new HttpError(404,'Request not found.');return Response.json({ok:true});}
+ const b=z.object({request_id:z.string().uuid(),category:z.enum(['technical','billing','privacy','abuse','ai_allowance']),subject:z.string().trim().min(3).max(150),message:z.string().trim().min(10).max(6000)}).parse(body);
+ const existing=await sql`SELECT id FROM support_requests WHERE requester_email=${u.email} AND request_id=${b.request_id}`;if(existing[0])return Response.json(existing[0]);
+ const r=await sql`INSERT INTO support_requests(request_id,requester_email,category,subject,message,slot) SELECT ${b.request_id},${u.email},${b.category},${b.subject},${b.message},s FROM generate_series(1,5) s WHERE NOT EXISTS(SELECT 1 FROM support_requests WHERE requester_email=${u.email} AND day=(now() AT TIME ZONE 'UTC')::date AND slot=s) ORDER BY s LIMIT 1 ON CONFLICT DO NOTHING RETURNING id`;
+ if(!r[0])throw new HttpError(429,'You can submit up to five requests per day. If another request just finished, retry once.');return Response.json(r[0],{status:201});
+}catch(e){return errorResponse(e);}}
