@@ -1,15 +1,20 @@
 import { getChatGPTUser } from '../app/chatgpt-auth';
 import { organizationId } from './db';
+import {emailAuth} from './neon-auth';
 export class HttpError extends Error { constructor(public status: number, message: string){super(message);} }
 export function isAdmin(email: string) {return (process.env.ADMIN_EMAILS||'').split(',').map(s=>s.trim().toLowerCase()).includes(email.toLowerCase());}
+export async function getUser(){
+ if(process.env.NEON_AUTH_BASE_URL){const {data}=await emailAuth().getSession();if(data?.user&&data.user.emailVerified)return {email:data.user.email.toLowerCase(),displayName:data.user.name,fullName:data.user.name};}
+ return getChatGPTUser();
+}
 export async function requireUser(request?: Request) {
- const user=await getChatGPTUser();
+ const user=await getUser();
  if(!user) throw new HttpError(401,'Sign in to continue.');
  if(request && !['GET','HEAD'].includes(request.method)) {
   if(!request.headers.get('content-type')?.startsWith('application/json')) throw new HttpError(415,'JSON is required.');
   const origin=request.headers.get('origin');
   const expected=process.env.APP_BASE_URL;
-  if(!origin || ![expected,new URL(request.url).origin].includes(origin)) throw new HttpError(403,'Request origin is not allowed.');
+  if(!origin || origin!==(expected||new URL(request.url).origin)) throw new HttpError(403,'Request origin is not allowed.');
  }
  return user;
 }

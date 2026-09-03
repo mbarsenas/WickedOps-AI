@@ -1,0 +1,8 @@
+import assert from 'node:assert/strict';import {mock} from 'node:test';
+process.env.NEON_AUTH_BASE_URL='https://ep-wispy-bird-aex3ima1.neonauth.c-2.us-east-2.aws.neon.tech/agentmail/auth';process.env.NEON_AUTH_COOKIE_SECRET='isolated-auth-test-cookie-secret-32-characters';
+mock.module('next/headers',{namedExports:{cookies:async()=>({get:()=>undefined,set:()=>{},delete:()=>{}}),headers:async()=>new Headers({origin:'http://localhost:4173'})}});
+const {POST,GET}=await import('../app/api/auth/[...path]/route.ts');
+const r=await GET(new Request('http://localhost:4173/api/auth/get-session'),{params:Promise.resolve({path:['get-session']})});assert.equal(r.status,200);assert.equal(await r.json(),null);
+const denied=await POST(new Request('http://localhost:4173/api/auth/sign-in/email-otp',{method:'POST',headers:{'Content-Type':'application/json',Origin:'http://localhost:4173'},body:JSON.stringify({email:'isolated@example.com',otp:'000000'})}),{params:Promise.resolve({path:['sign-in','email-otp']})});assert.equal(denied.status,400);assert.equal((await denied.json()).code,'INVALID_OTP');
+const google=await POST(new Request('http://localhost:4173/api/auth/sign-in/social',{method:'POST',headers:{'Content-Type':'application/json',Origin:'http://localhost:4173'},body:JSON.stringify({provider:'google',callbackURL:'http://localhost:4173/dashboard'})}),{params:Promise.resolve({path:['sign-in','social']})});assert.equal(google.status,200,await google.clone().text());assert.ok((await google.json()).url);
+console.log('PASS: real managed auth proxy session, invalid code rejection, Google authorization URL. Interactive inbox verification remains a user step.');
