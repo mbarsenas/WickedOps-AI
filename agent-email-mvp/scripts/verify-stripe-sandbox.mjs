@@ -22,14 +22,15 @@ async function applyEvent(id){
 try{
  product=await stripe.products.create({name:'AgentMail isolated billing verification',metadata:{test_run:org}});
  price=await stripe.prices.create({product:product.id,currency:'usd',unit_amount:2000,recurring:{interval:'month'}});assert.equal(price.livemode,false);process.env.STRIPE_PRICE_ID=price.id;
- customer=await stripe.customers.create({name:'AgentMail sandbox test',payment_method:'pm_card_visa',invoice_settings:{default_payment_method:'pm_card_visa'},metadata:{test_run:org}});assert.equal(customer.livemode,false);
+ customer=await stripe.customers.create({name:'AgentMail sandbox test',source:'tok_visa',metadata:{test_run:org}});assert.equal(customer.livemode,false);
  await sql`UPDATE organizations SET stripe_customer_id=${customer.id} WHERE id=${org}`;
  checkout=await stripe.checkout.sessions.create({customer:customer.id,mode:'subscription',line_items:[{price:price.id,quantity:1}],success_url:'https://example.com/success',cancel_url:'https://example.com/cancel',integration_identifier:'agentmail_sandboxt',subscription_data:{metadata:{organization_id:org}}});assert(checkout.url);assert.equal(checkout.livemode,false);await stripe.checkout.sessions.expire(checkout.id);checkout=null;
- subscription=await stripe.subscriptions.create({customer:customer.id,items:[{price:price.id}],default_payment_method:'pm_card_visa',metadata:{organization_id:org},payment_behavior:'error_if_incomplete'});
+ subscription=await stripe.subscriptions.create({customer:customer.id,items:[{price:price.id}],default_source:typeof customer.default_source==='string'?customer.default_source:customer.default_source.id,metadata:{organization_id:org},payment_behavior:'error_if_incomplete'});
  assert.equal(subscription.status,'active');assert.equal(await applyEvent(subscription.id),10000);
- const invoice=await stripe.invoices.retrieve(typeof subscription.latest_invoice==='string'?subscription.latest_invoice:subscription.latest_invoice.id);assert.equal(invoice.paid,true);assert.equal(invoice.livemode,false);
+ const invoice=await stripe.invoices.retrieve(typeof subscription.latest_invoice==='string'?subscription.latest_invoice:subscription.latest_invoice.id);assert.equal(invoice.status,'paid');assert.equal(invoice.livemode,false);
  await stripe.subscriptions.cancel(subscription.id);assert.equal(await applyEvent(subscription.id),100);subscription=null;
- subscription=await stripe.subscriptions.create({customer:customer.id,items:[{price:price.id}],default_payment_method:'pm_card_chargeDeclined',metadata:{organization_id:org},payment_behavior:'default_incomplete'});
+ const declined=await stripe.customers.createSource(customer.id,{source:'tok_chargeCustomerFail'});
+ subscription=await stripe.subscriptions.create({customer:customer.id,items:[{price:price.id}],default_source:declined.id,metadata:{organization_id:org},payment_behavior:'default_incomplete'});
  assert.equal(subscription.status,'incomplete');assert.equal(await applyEvent(subscription.id),100);
  console.log('PASS: real sandbox paid subscription, 10,000 allowance, cancellation to 100, failed initial payment without paid allowance, and Checkout session creation. App handler retrieves actual Stripe objects; signed events delivered locally. Hosted Checkout completion not tested. No real charges.');
 }finally{
