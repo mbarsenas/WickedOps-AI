@@ -30,3 +30,11 @@ Starter is $20/month for 10,000 API email recipients per UTC calendar month; gov
 
 ## Background delivery
 The operations/agentmail-webhooks.yml workflow is installed as .github/workflows/agentmail-webhooks.yml on the repository default branch. Set AGENTMAIL_WEBHOOK_SCHEDULER_SECRET in GitHub Actions to the same value as Sites WEBHOOK_SCHEDULER_SECRET. POST /api/internal/webhook-dispatch requires this bearer secret. Each run handles at most two workspaces (five deliveries each), with a database lease preventing overlapping runs. This preview needs higher-capacity scheduling before sustained production volume.
+
+## Release verification
+Run only against an isolated Neon branch, with TEST_DATABASE_URL set to that branch:
+- `node --experimental-test-module-mocks --import tsx scripts/verify-billing.mjs`: actual Stripe signature validation plus simulated subscription activation, payment failure/recovery, cancellation, stale events, and ownership checks.
+- `node --import tsx scripts/verify-webhook-network.mjs`: real local HTTP receiver exercises failure/recovery, HMAC, backoff, concurrent scheduler leases, and retry exhaustion. This disables copied webhook endpoints in the isolated branch; never point it at production.
+- `node --experimental-test-module-mocks --import tsx scripts/verify-stripe-sandbox.mjs`: requires STRIPE_TEST_SECRET_KEY for the dedicated AgentMail sandbox and TEST_BRANCH_HOST matching the isolated database hostname. Rejects live keys; creates and cleans up test subscriptions. Actual hosted Checkout completion and externally delivered Stripe webhooks remain separate checks.
+
+September 3 verification: billing-handler and local-network webhook tests passed. GitHub workflow is active and its manual invocation passed; scheduled failure/recovery has not been observed. The sandbox runner is prepared and syntax-checked, but awaits its sandbox key and has not been executed. Production billing and tax settings are unchanged.
