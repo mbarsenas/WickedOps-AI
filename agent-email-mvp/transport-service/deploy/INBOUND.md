@@ -1,6 +1,6 @@
 # Independent inbound pilot
 
-The AWS Postfix route accepts only `pilot@inbound.senderpermit.com` and maps it to
+The Postfix route accepts only `pilot@inbound.senderpermit.com` and maps it to
 Pilot Test (`743121e2-2429-49f5-af41-9230fd324643`). Provision additional addresses
 explicitly; this is not a catch-all mailbox. Public reception requires MX
 `inbound.senderpermit.com -> mail.senderpermit.com`, priority 10.
@@ -23,4 +23,4 @@ The app records received email, creates conversations, applies the existing agen
 and policy workflow, and exposes held/failed work in Actions. The pilot agent starts
 paused. Null-sender and automated messages do not trigger replies. SMTP sender identity
 is not proof of authenticity: inbound SPF/DKIM verification and spam filtering remain
-separate production-hardening work. Sending remains behind the AWS pilot gate.
+separate production-hardening work. Sending remains behind the SenderPermit pilot gate.

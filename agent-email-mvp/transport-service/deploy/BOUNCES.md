@@ -1,6 +1,6 @@
 # Bounce handling
 
-Installed on the AWS mail host. Public reception still requires an MX record for
+Installed on the SenderPermit mail host. Public reception requires an MX record for
 `bounces.senderpermit.com` pointing to `mail.senderpermit.com` and inbound TCP 25.
 The outbound worker remains disabled pending outbound connectivity and canary activation.
 

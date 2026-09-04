@@ -23,6 +23,12 @@ install -d -m 700 /etc/senderpermit
 cp "$source_dir/"*.mjs /opt/senderpermit/transport-service/
 cp "$source_dir/lab/package.json" "$source_dir/lab/package-lock.json" /opt/senderpermit/
 (cd /opt/senderpermit; PATH=/opt/senderpermit-node/bin:$PATH npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
+if test -f /etc/opendkim/keys/senderpermit.com/mail.private; then
+  python3 "$source_dir/deploy/configure-dkim.py"
+  chown root:opendkim /etc/opendkim/key.table /etc/opendkim/signing.table /etc/opendkim/trusted.hosts
+  chmod 640 /etc/opendkim/key.table /etc/opendkim/signing.table /etc/opendkim/trusted.hosts
+  opendkim -n -x /etc/opendkim.conf
+fi
 if ! test -f /etc/senderpermit/transport.env; then
  python3 - <<'PY'
 import json,secrets,os
