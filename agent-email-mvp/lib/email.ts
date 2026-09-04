@@ -25,10 +25,11 @@ export async function executeAction(id:string,actor:string){
  if(approval[0]?.status!=='approved' && (decisions[0]?.decision!=='allow'||current.decision!=='allow'))throw new HttpError(409,'Human approval is required.');
  const identity=await sql`SELECT id FROM email_identities WHERE agent_id=${a.agent_id} AND address=${payload.from} AND status='active'`;
  if(!identity[0])throw new HttpError(409,'The sending identity is disabled.');
+ let transport;try{transport=outbound(a.organization_id);}catch(e){throw new HttpError(503,e instanceof Error?e.message:'Workspace sending is paused.');}
  const claim=await sql`INSERT INTO action_executions(action_id,state,lease_until) VALUES(${id},'sending',now()+interval '3 minutes') ON CONFLICT(action_id) DO UPDATE SET state='sending',lease_until=now()+interval '3 minutes' WHERE action_executions.state<>'sent' AND (action_executions.lease_until IS NULL OR action_executions.lease_until<now()) AND action_executions.created_at>now()-interval '23 hours' RETURNING action_id`;
  if(!claim[0])throw new HttpError(409,'Already sending, already sent, or outside the safe retry window. Check delivery before retrying.');
  try{
-  const sent=await outbound().submit(a.organization_id,'governed-email/'+id,{...payload,to:[payload.to]});
+  const sent=await transport.submit(a.organization_id,'governed-email/'+id,{...payload,to:[payload.to]});
   await sql.transaction([
    sql`INSERT INTO messages(conversation_id,direction,provider_message_id,from_address,to_address,subject,text_body,sent_at) VALUES(${a.conversation_id},'outbound',${sent.id},${payload.from},${payload.to},${payload.subject},${payload.text},now()) ON CONFLICT(provider_message_id) WHERE provider_message_id IS NOT NULL DO NOTHING`,
    sql`UPDATE proposed_actions SET status='executed',updated_at=now() WHERE id=${id}`,

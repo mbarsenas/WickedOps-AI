@@ -1,0 +1,20 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {PILOT_WORKSPACE,deliveryInfo,pilotTransport} from '../lib/transport/routing';
+test('pilot fails closed without queueing; other workspaces retain their provider',()=>{
+ delete process.env.SENDERPERMIT_PILOT_SENDING;
+ assert.equal(deliveryInfo(PILOT_WORKSPACE).sending_enabled,false);
+ assert.throws(()=>pilotTransport(PILOT_WORKSPACE),/No email was queued/);
+ assert.equal(pilotTransport('other-workspace'),null);
+ assert.equal(deliveryInfo('other-workspace').name,'Resend');
+ process.env.SENDERPERMIT_PILOT_SENDING='enabled';
+ delete process.env.SENDERPERMIT_TRANSPORT_TOKEN;
+ assert.throws(()=>pilotTransport(PILOT_WORKSPACE));
+ process.env.SENDERPERMIT_TRANSPORT_TOKEN='test'.repeat(12);
+ process.env.SENDERPERMIT_TRANSPORT_ORIGIN='https://mail.senderpermit.com';
+ const transport=pilotTransport(PILOT_WORKSPACE)!;
+ assert.throws(()=>transport.submit('other','key',{from:'a@example.com',to:['b@example.com'],subject:'Test',text:'Test'}),/mismatch/);
+ delete process.env.SENDERPERMIT_PILOT_SENDING;
+ delete process.env.SENDERPERMIT_TRANSPORT_TOKEN;
+ delete process.env.SENDERPERMIT_TRANSPORT_ORIGIN;
+});

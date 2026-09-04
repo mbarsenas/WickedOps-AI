@@ -1,7 +1,8 @@
 import type {OutboundMessage,Submission} from '../../lib/transport/contracts';
 export const transportName='Local Postfix';
 export const localLab=true;
-export function outbound(){return {async submit(workspace:string,key:string,message:OutboundMessage):Promise<Submission>{
+export function deliveryInfo(_workspace:string){return {name:transportName,sending_enabled:true,pilot:false};}
+export function outbound(_workspace?:string){return {async submit(workspace:string,key:string,message:OutboundMessage):Promise<Submission>{
  if(workspace!==process.env.LAB_WORKSPACE)throw Error('Local workspace mismatch');
  const r=await fetch('http://127.0.0.1:4380/v1/submissions',{method:'POST',headers:{authorization:'Bearer '+process.env.LAB_TRANSPORT_TOKEN,'content-type':'application/json','idempotency-key':key},body:JSON.stringify({workspace,message}),signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw Error('Local transport did not acknowledge this submission');

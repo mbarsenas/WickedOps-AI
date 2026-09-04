@@ -22,6 +22,7 @@ export async function sendApi(req:Request){
  if(existing&&Date.now()-new Date(existing.created_at).getTime()>23*3600000)return fail(409,'Retry window expired. Check delivery before creating another send.');
  const domain=(await sql`SELECT id FROM sending_domains WHERE organization_id=${org} AND name=${body.from.split('@')[1]} AND status='verified'`)[0];
  if(!domain)return fail(403,'The sending domain must be verified and owned by this workspace.');
+ let transport;try{transport=outbound(org);}catch(e){return fail(503,e instanceof Error?e.message:'Workspace sending is paused.');}
  let row:any;
  if(existing){row=(await sql`UPDATE email_api_events SET lease_until=now()+interval '3 minutes',status='sending' WHERE id=${existing.id} AND provider_id IS NULL AND lease_until<now() RETURNING *`)[0];}
  else{
@@ -34,7 +35,7 @@ export async function sendApi(req:Request){
   if(!quota[0]){await sql`UPDATE email_api_events SET status='quota_exceeded',lease_until=NULL WHERE id=${row.id}`;return fail(429,'Monthly send limit reached.');}
  }
  try{
-  const sent=await outbound().submit(org,'agentmail/'+row.id,{from:body.from,to:body.to,subject:body.subject,text:body.text,replyTo:body.reply_to});
+  const sent=await transport.submit(org,'agentmail/'+row.id,{from:body.from,to:body.to,subject:body.subject,text:body.text,replyTo:body.reply_to});
   await sql.transaction([
    sql`UPDATE email_api_events SET provider_id=${sent.id},status=${sent.stage==='queued'?'queued':'accepted'},lease_until=NULL,error=NULL,updated_at=now() WHERE id=${row.id}`,
    sql`UPDATE monthly_usage SET accepted=accepted+${body.to.length},reserved=GREATEST(0,reserved-${body.to.length}) WHERE organization_id=${org} AND period=date_trunc('month',${row.created_at}::timestamptz)::date`,
