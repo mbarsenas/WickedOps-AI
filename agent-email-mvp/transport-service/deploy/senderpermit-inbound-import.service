@@ -1,5 +1,5 @@
 [Unit]
-Description=Import AWS mail into SenderPermit pilot
+Description=Import direct mail into SenderPermit pilot
 After=network-online.target senderpermit-intake.service
 [Service]
 Type=oneshot

@@ -1,8 +1,8 @@
 import {PILOT_WORKSPACE} from './routing';
 export async function inboundRequest(path:string,method='GET'){
- if(process.env.SENDERPERMIT_TRANSPORT_ORIGIN!=='https://mail.senderpermit.com'||!process.env.SENDERPERMIT_TRANSPORT_TOKEN)throw Error('AWS reception is not configured');
+ if(process.env.SENDERPERMIT_TRANSPORT_ORIGIN!=='https://mail.senderpermit.com'||!process.env.SENDERPERMIT_TRANSPORT_TOKEN)throw Error('SenderPermit reception is not configured');
  const response=await fetch('https://mail.senderpermit.com/v1/inbound'+path,{method,headers:{authorization:'Bearer '+process.env.SENDERPERMIT_TRANSPORT_TOKEN},redirect:'manual',signal:AbortSignal.timeout(10000)});
- if(!response.ok)throw Error('AWS inbound retrieval failed');return response.json();
+ if(!response.ok)throw Error('SenderPermit inbound retrieval failed');return response.json();
 }
 export async function receiveAWS(id:string){
  if(!/^spi_[a-f0-9]{64}$/.test(id))throw Error('Invalid inbound identifier');
