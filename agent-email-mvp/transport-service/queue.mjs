@@ -5,6 +5,7 @@ const address=z.string().email().max(254).regex(/^[\x21-\x7e]+$/).refine(s=>!/[\
 export const envelope=z.object({workspace:z.string().uuid(),message:z.object({from:address,to:z.array(address).min(1).max(50),subject:z.string().min(1).max(998).regex(/^[^\r\n]*$/),text:z.string().max(200000),replyTo:address.optional(),headers:z.record(z.string().max(998).regex(/^[^\r\n]*$/)).optional().refine(h=>!h||Object.keys(h).every(k=>['In-Reply-To','References','Auto-Submitted'].includes(k)))}).strict()}).strict();
 export class Queue {
  constructor(path){this.db=new DatabaseSync(path);this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+ CREATE TABLE IF NOT EXISTS inbound(id TEXT PRIMARY KEY,workspace TEXT NOT NULL,payload TEXT NOT NULL,raw BLOB NOT NULL,created INTEGER NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS submissions(id TEXT PRIMARY KEY,workspace TEXT NOT NULL,key TEXT NOT NULL,hash TEXT NOT NULL,payload TEXT NOT NULL,created INTEGER NOT NULL,UNIQUE(workspace,key));
  CREATE TABLE IF NOT EXISTS recipients(id TEXT PRIMARY KEY,submission TEXT NOT NULL REFERENCES submissions(id),recipient TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'queued',lease INTEGER,error TEXT,UNIQUE(submission,recipient));
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,recipient_id TEXT NOT NULL,state TEXT NOT NULL,at INTEGER NOT NULL);

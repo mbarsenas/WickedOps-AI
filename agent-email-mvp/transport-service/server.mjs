@@ -5,7 +5,11 @@ import {pathToFileURL} from 'node:url';
 export function service(queue,accounts){
  return createServer(async(req,res)=>{const reply=(status,b)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(b));};try{
  const token=(req.headers.authorization||'').replace(/^Bearer /,'');const digest=createHash('sha256').update(token).digest();const account=accounts.find(a=>timingSafeEqual(digest,createHash('sha256').update(a.token).digest()));if(!account)return reply(401,{error:'Unauthorized'});
- const url=new URL(req.url,'http://localhost');if(req.method==='POST'&&url.pathname==='/v1/submissions'){
+ const url=new URL(req.url,'http://localhost');
+ if(req.method==='GET'&&url.pathname==='/v1/inbound')return reply(200,{messages:queue.db.prepare('SELECT id,created FROM inbound WHERE workspace=? AND acknowledged=0 ORDER BY created,id LIMIT 10').all(account.workspace)});
+ const inbound=/^\/v1\/inbound\/(spi_[a-f0-9]{64})(\/ack)?$/.exec(url.pathname);
+ if(inbound){const row=queue.db.prepare('SELECT payload FROM inbound WHERE id=? AND workspace=?').get(inbound[1],account.workspace);if(!row)return reply(404,{error:'Not found'});if(req.method==='GET'&&!inbound[2])return reply(200,JSON.parse(row.payload));if(req.method==='POST'&&inbound[2]){queue.db.prepare('UPDATE inbound SET acknowledged=1 WHERE id=? AND workspace=?').run(inbound[1],account.workspace);return reply(200,{ok:true});}}
+if(req.method==='POST'&&url.pathname==='/v1/submissions'){
  if(!req.headers['content-type']?.startsWith('application/json'))return reply(415,{error:'JSON required'});let chunks=[],size=0;for await(const chunk of req){size+=chunk.length;if(size>250000){reply(413,{error:'Message too large'});req.destroy();return;}chunks.push(chunk);}let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return reply(400,{error:'Invalid JSON'});}if(body.workspace!==account.workspace)return reply(403,{error:'Workspace mismatch'});
  const result=queue.submit(body,req.headers['idempotency-key']||'',account.domains);return reply(result.replayed?200:202,result);
  }

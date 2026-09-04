@@ -55,9 +55,11 @@ export async function ingest(providerId:string){
  }
  try{
   const email=await receive(providerId); const from=address(email.from);
-  await captureInbound(providerId,{from,to:email.to.map(address),subject:email.subject,text:email.text});
+  const scopedWorkspace=(email as {workspace?:string}).workspace;
+  if(scopedWorkspace)await sql`UPDATE email_jobs SET organization_id=${scopedWorkspace} WHERE provider_message_id=${providerId}`;
+  await captureInbound(providerId,{from,to:email.to.map(address),subject:email.subject,text:email.text},scopedWorkspace);
   const recipients=email.to.map(address);
-  const identities=await sql`SELECT ei.address,ei.status AS identity_status,a.* FROM email_identities ei JOIN agents a ON a.id=ei.agent_id WHERE ei.address=ANY(${recipients}) ORDER BY ei.created_at`;
+  const identities=await sql`SELECT ei.address,ei.status AS identity_status,a.* FROM email_identities ei JOIN agents a ON a.id=ei.agent_id WHERE ei.address=ANY(${recipients}) AND (${scopedWorkspace||null}::uuid IS NULL OR a.organization_id=${scopedWorkspace||null}::uuid) ORDER BY ei.created_at`;
   const identity=identities[0];
   if(!identity){await sql`UPDATE email_jobs SET status='done',lease_until=NULL WHERE provider_message_id=${providerId}`;return {ok:true,ignored:true};}
   await sql`UPDATE email_jobs SET organization_id=${identity.organization_id} WHERE provider_message_id=${providerId}`;

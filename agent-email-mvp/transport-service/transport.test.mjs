@@ -1,5 +1,21 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {Queue} from './queue.mjs';import {service} from './server.mjs';import {workOnce,mime} from './worker.mjs';
 const workspace='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';const other='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';const body={workspace,message:{from:'hello@example.com',to:['customer@example.net'],subject:'Test',text:'A controlled test.'}};
+test('inbound retrieval and acknowledgement are workspace scoped',async()=>{
+ const q=new Queue(':memory:'),id='spi_'+'a'.repeat(64),token='inbound-test-token'.repeat(3),otherToken='different-token'.repeat(3);
+ q.db.prepare('INSERT INTO inbound(id,workspace,payload,raw,created) VALUES(?,?,?,?,?)').run(id,workspace,JSON.stringify({workspace,text:'private message'}),Buffer.from('raw private'),Date.now());
+ const server=service(q,[{token,workspace,domains:[]},{token:otherToken,workspace:other,domains:[]}]);await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const base='http://127.0.0.1:'+server.address().port+'/v1/inbound';
+ const headers={authorization:'Bearer '+token};
+ try{
+ assert.equal((await fetch(base+'/'+id,{headers:{authorization:'Bearer '+otherToken}})).status,404);
+ assert.equal((await fetch(base+'/'+id+'/ack',{method:'POST',headers:{authorization:'Bearer '+otherToken}})).status,404);
+ assert.equal((await (await fetch(base,{headers})).json()).messages.length,1);
+ assert.equal((await (await fetch(base+'/'+id,{headers})).json()).text,'private message');
+ assert.equal((await fetch(base+'/'+id+'/ack',{method:'POST',headers})).status,200);
+ assert.equal((await (await fetch(base,{headers})).json()).messages.length,0);
+ assert.equal((await fetch(base+'/'+id,{headers})).status,200);
+ }finally{await new Promise(r=>server.close(r));q.close();}
+});
 test('durable idempotency, workspace isolation, conflicting payloads and headers',()=>{const dir=mkdtempSync(join(tmpdir(),'sp-'));let q=new Queue(join(dir,'queue.db'));try{const first=q.submit(body,'key',['example.com']);q.close();q=new Queue(join(dir,'queue.db'));assert.equal(q.submit(body,'key',['example.com']).id,first.id);assert.throws(()=>q.submit({...body,message:{...body.message,text:'changed'}},'key',['example.com']),e=>e.status===409);assert.equal(q.status(other,first.id).length,0);assert.notEqual(q.submit({...body,workspace:other},'key',['example.com']).id,first.id);assert.throws(()=>q.submit(body,'another',[]),e=>e.status===403);assert.throws(()=>q.submit({...body,message:{...body.message,subject:'a\r\nBcc: x@y.com'}},'x',['example.com']));assert.throws(()=>q.submit({...body,message:{...body.message,headers:{Bcc:'x@y.com'}}},'x',['example.com']));}finally{q.close();rmSync(dir,{recursive:true});}});
 test('suppression, competing claims, uncertain handoff and restart recovery',async()=>{const q=new Queue(':memory:');try{const {id}=q.submit(body,'a',['example.com']);const claimed=q.claim();assert.ok(claimed);assert.equal(q.claim(),undefined);q.db.prepare('UPDATE recipients SET lease=0').run();q.recover();assert.equal(q.status(workspace,id)[0].state,'uncertain');assert.equal(await workOnce(q,async()=>{throw Error('must not replay');}),false);q.db.prepare('INSERT INTO suppressions VALUES(?,?,?)').run(workspace,'customer@example.net','test');const s=q.submit(body,'b',['example.com']);assert.equal(q.status(workspace,s.id)[0].state,'suppressed');}finally{q.close();}});
 test('local MTA acceptance is distinct from delivery; MIME encodes body',async()=>{const q=new Queue(':memory:');try{const {id}=q.submit(body,'a',['example.com']);await workOnce(q,async row=>{assert.match(mime(row),/Content-Transfer-Encoding: base64/);return 'mta_accepted';});assert.equal(q.status(workspace,id)[0].state,'mta_accepted');assert.equal(await workOnce(q),false);}finally{q.close();}});
