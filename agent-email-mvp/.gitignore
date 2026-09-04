@@ -8,3 +8,5 @@ dist/
 *.tsbuildinfo
 transport.sqlite*
 transport-service/*.sqlite*
+
+transport-service/lab/.env
