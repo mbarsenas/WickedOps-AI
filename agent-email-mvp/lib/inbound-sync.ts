@@ -18,8 +18,8 @@ export async function syncAWSInbound(org:string){
  }
  await sql`INSERT INTO app_settings(key,value) VALUES(${'aws_inbound/'+org},${JSON.stringify({ok:true,checked_at:new Date().toISOString()})}::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`;
  return true;
- }catch{
- await sql`INSERT INTO app_settings(key,value) VALUES(${'aws_inbound/'+org},${JSON.stringify({ok:false,checked_at:new Date().toISOString()})}::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`;
+ }catch(error){
+ await sql`INSERT INTO app_settings(key,value) VALUES(${'aws_inbound/'+org},${JSON.stringify({ok:false,error:error instanceof Error?error.message.slice(0,200):'Import failed',checked_at:new Date().toISOString()})}::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`;
  return false;
  }
 }
