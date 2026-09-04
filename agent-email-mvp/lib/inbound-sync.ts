@@ -17,7 +17,9 @@ export async function syncAWSInbound(org:string){
  if(saved&&['done','held','failed'].includes(saved.status))await inboundRequest('/'+message.id+'/ack','POST');
  }
  await sql`INSERT INTO app_settings(key,value) VALUES(${'aws_inbound/'+org},${JSON.stringify({ok:true,checked_at:new Date().toISOString()})}::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`;
+ return true;
  }catch{
  await sql`INSERT INTO app_settings(key,value) VALUES(${'aws_inbound/'+org},${JSON.stringify({ok:false,checked_at:new Date().toISOString()})}::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`;
+ return false;
  }
 }

@@ -1,0 +1,15 @@
+[Unit]
+Description=Import AWS mail into SenderPermit pilot
+After=network-online.target senderpermit-intake.service
+[Service]
+Type=oneshot
+User=senderpermit
+Group=senderpermit
+WorkingDirectory=/opt/senderpermit
+EnvironmentFile=/etc/senderpermit/transport.env
+ExecStart=/usr/bin/python3 /opt/senderpermit/import-inbound.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=130
