@@ -17,7 +17,7 @@ export async function sendApi(req:Request){
  const hash=await digest(JSON.stringify(body));const org=key.organization_id;
  const existing=(await sql`SELECT * FROM email_api_events WHERE organization_id=${org} AND idempotency_key=${idempotency}`)[0];
  if(existing&&existing.payload_hash!==hash)return fail(409,'This Idempotency-Key belongs to a different message.');
- if(existing?.provider_id){if(existing.status!=='queued'){await enqueueEvent(org,'email.sent','sent/'+existing.provider_id,{id:existing.provider_id});await dispatchWebhooks(org);}return Response.json({id:existing.provider_id,status:existing.status},{status:200});}
+ if(existing?.provider_id){if(!existing.provider_id.startsWith('sp_')){await enqueueEvent(org,'email.sent','sent/'+existing.provider_id,{id:existing.provider_id});await dispatchWebhooks(org);}return Response.json({id:existing.provider_id,status:existing.status},{status:200});}
  if(existing?.status==='quota_exceeded')return fail(429,'Monthly send limit reached.');
  if(existing&&Date.now()-new Date(existing.created_at).getTime()>23*3600000)return fail(409,'Retry window expired. Check delivery before creating another send.');
  const domain=(await sql`SELECT id FROM sending_domains WHERE organization_id=${org} AND name=${body.from.split('@')[1]} AND status='verified'`)[0];

@@ -1,4 +1,5 @@
 import {deliveryInfo,localLab} from '../../../lib/transport/active';
+import {deliverySnapshot} from '../../../lib/transport/sync';
 import {syncAlerts} from '../../../lib/alerts';
 import {aiUsage} from '../../../lib/ai-usage';
 import { z } from 'zod';
@@ -15,6 +16,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path:string[]}>}
  try{const user=await requireWorkspace();const {path}=await params;const sql=db();const org=user.organization_id;
  const key=path.join('/');
  if(key==='state'){
+ const alerts=await syncAlerts(org);
+ const delivery=await deliverySnapshot(org);
  await dispatchWebhooks(org);
  const [agents,identities,policies,conversations,approvals,actions,auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,workspaceRows,usageRows,stats]=await Promise.all([
   sql`SELECT * FROM agents WHERE organization_id=${org} ORDER BY created_at DESC`,
@@ -32,7 +35,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path:string[]}>}
   sql`SELECT accepted,reserved,period FROM monthly_usage WHERE organization_id=${org} AND period=date_trunc('month',now())::date`,
   sql`SELECT (SELECT count(*)::int FROM agents WHERE organization_id=${org} AND status='active') AS active_agents,(SELECT count(*)::int FROM conversations c JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS conversations,(SELECT count(*)::int FROM approvals ap JOIN proposed_actions p ON p.id=ap.proposed_action_id JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND ap.status='pending') AS pending,(SELECT count(*)::int FROM proposed_actions p JOIN agents a ON a.id=p.agent_id WHERE a.organization_id=${org} AND p.status='executed') AS sent,(SELECT count(*)::int FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE a.organization_id=${org}) AS email_events`
  ]);
- return Response.json({alerts:await syncAlerts(org),agents,identities,policies,conversations,approvals,actions,audit:auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,workspace:workspaceRows[0],ai_usage:await aiUsage(org),usage:usageRows[0]||{accepted:0,reserved:0},stats:stats[0],user:user.email,config:{transport:deliveryInfo(org).name,delivery:deliveryInfo(org),local_lab:localLab,billing:billingConfigured(),database:true,resend:!!process.env.RESEND_API_KEY,ai:!!process.env.OPENAI_API_KEY,webhook:!!process.env.RESEND_WEBHOOK_SECRET,webhook_url:(process.env.APP_BASE_URL||'')+'/api/webhooks/resend',api_base:(process.env.APP_BASE_URL||'')+'/api/v1',model:process.env.OPENAI_MODEL||'gpt-5-mini'}},{headers:{'Cache-Control':'private, no-store'}});
+ return Response.json({alerts,delivery,agents,identities,policies,conversations,approvals,actions,audit:auditRows,jobs,apiKeys,webhookEndpoints,emailApiEvents,workspace:workspaceRows[0],ai_usage:await aiUsage(org),usage:usageRows[0]||{accepted:0,reserved:0},stats:stats[0],user:user.email,config:{transport:deliveryInfo(org).name,delivery:deliveryInfo(org),local_lab:localLab,billing:billingConfigured(),database:true,resend:!!process.env.RESEND_API_KEY,ai:!!process.env.OPENAI_API_KEY,webhook:!!process.env.RESEND_WEBHOOK_SECRET,webhook_url:(process.env.APP_BASE_URL||'')+'/api/webhooks/resend',api_base:(process.env.APP_BASE_URL||'')+'/api/v1',model:process.env.OPENAI_MODEL||'gpt-5-mini'}},{headers:{'Cache-Control':'private, no-store'}});
  }
  if(path[0]==='conversations'&&path[1]){
  const id=uuid.parse(path[1]);const rows=await sql`SELECT m.* FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agents a ON a.id=c.agent_id WHERE c.id=${id} AND a.organization_id=${org} ORDER BY m.created_at,m.id`;
