@@ -1,6 +1,6 @@
 import PublicShell from '../components/public-shell';
 import CopyCode from '../components/copy-code';
-const base='https://governed-agent-email.markbarsenas366.chatgpt.site/api/v1';
+const base='https://senderpermit.com/api/v1';
 const curl=String.raw`curl '${base}/emails' \
   -H "Authorization: Bearer $AGENTMAIL_API_KEY" \
   -H 'Content-Type: application/json' \
