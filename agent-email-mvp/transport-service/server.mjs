@@ -14,6 +14,6 @@ export function service(queue,accounts){
  }catch(e){reply(e.status|| (e.name==='ZodError'?400:500),{error:e.status?e.message:'Request could not be processed'});}});
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- const accounts=JSON.parse(process.env.TRANSPORT_ACCOUNTS||'[]');if(!accounts.length||accounts.some(a=>typeof a.token!=='string'||a.token.length<32||typeof a.workspace!=='string'||!Array.isArray(a.domains)||!a.domains.length))throw Error('Configure workspace-scoped credentials and provisioned domains');
+ const accounts=JSON.parse(process.env.TRANSPORT_ACCOUNTS||'[]');if(!accounts.length||accounts.some(a=>typeof a.token!=='string'||a.token.length<32||typeof a.workspace!=='string'||!Array.isArray(a.domains)))throw Error('Configure workspace-scoped credentials and provisioned domains');
  const q=new Queue(process.env.TRANSPORT_DB||'transport.sqlite');const server=service(q,accounts);server.requestTimeout=20000;server.headersTimeout=10000;server.listen(Number(process.env.PORT||4380),process.env.LOCAL_MAIL_LAB==='yes'?'0.0.0.0':'127.0.0.1',()=>console.log('Transport listening on loopback'));process.on('SIGTERM',()=>server.close(()=>{q.close();process.exit(0);}));
 }
