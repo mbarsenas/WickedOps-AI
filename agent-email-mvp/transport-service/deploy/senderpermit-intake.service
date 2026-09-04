@@ -1,0 +1,21 @@
+[Unit]
+Description=SenderPermit authenticated durable mail intake
+After=network.target
+
+[Service]
+User=senderpermit
+Group=senderpermit
+WorkingDirectory=/opt/senderpermit
+EnvironmentFile=/etc/senderpermit/transport.env
+ExecStart=/opt/senderpermit-node/bin/node transport-service/server.mjs
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/senderpermit
+
+[Install]
+WantedBy=multi-user.target

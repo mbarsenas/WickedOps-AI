@@ -1,0 +1,21 @@
+[Unit]
+Description=SenderPermit Postfix submission worker
+After=postfix.service senderpermit-intake.service
+Requires=postfix.service
+ConditionPathExists=/etc/senderpermit/enable-worker
+
+[Service]
+User=senderpermit
+Group=senderpermit
+WorkingDirectory=/opt/senderpermit
+EnvironmentFile=/etc/senderpermit/transport.env
+Environment=ENABLE_MTA=yes
+ExecStart=/opt/senderpermit-node/bin/node transport-service/worker.mjs
+Restart=on-failure
+RestartSec=5
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
