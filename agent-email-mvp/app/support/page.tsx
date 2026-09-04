@@ -1,4 +1,4 @@
 import PublicShell from '../components/public-shell';
 import Inbox from './inbox';
-export const metadata={title:'Support · AgentMail'};
+export const metadata={title:'Support · SenderPermit'};
 export default function Support(){return <PublicShell><header className="public-hero"><div className="eyebrow">HELP WHEN YOU NEED IT</div><h1>Let’s get your<br/>email moving.</h1><p>Technical help, billing questions, privacy requests, and AI pilot access.</p></header><section className="public-body"><h2>Before you send a request</h2><p>Check <a href="/docs#errors">errors and retries</a>, then inspect the workspace’s Email logs or Alerts. An accepted email is not necessarily delivered. A held agent message may simply mean the agent is paused.</p><p>Support is handled through this inbox during the developer preview. Response times are not guaranteed.</p>{process.env.SUPPORT_EMAIL&&<p>Public contact: <a href={'mailto:'+process.env.SUPPORT_EMAIL}>{process.env.SUPPORT_EMAIL}</a></p>}{process.env.LEGAL_OPERATOR_NAME&&<p>Operated by {process.env.LEGAL_OPERATOR_NAME}.</p>}<Inbox/></section></PublicShell>;}

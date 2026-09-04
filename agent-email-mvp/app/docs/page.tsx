@@ -1,2 +1,2 @@
 export {default} from './guide';
-export const metadata={title:'Developer documentation · AgentMail'};
+export const metadata={title:'Developer documentation · SenderPermit'};

@@ -4,7 +4,7 @@ import {billingConfigured,stripeClient} from '../../../../lib/billing';
 export async function POST(req:Request,{params}:{params:Promise<{action:string}>}){
  try{const user=await requireWorkspace(req);if(!billingConfigured())throw new HttpError(503,'Paid plans are not open yet. Your developer allowance remains available.');
   const {action}=await params;if(!['checkout','portal'].includes(action))throw new HttpError(404,'Not found.');
-  const sql=db();const org=(await sql`SELECT * FROM organizations WHERE id=${user.organization_id}`)[0];const stripe=stripeClient();const base=process.env.APP_BASE_URL!;
+  const sql=db();const org=(await sql`SELECT * FROM organizations WHERE id=${user.organization_id}`)[0];const stripe=stripeClient();const base=req.headers.get('origin')||process.env.APP_BASE_URL!;
   let customer=org.stripe_customer_id;
   if(!customer){const result=await stripe.customers.create({email:user.email,name:org.name,metadata:{organization_id:org.id}},{idempotencyKey:'agentmail/customer/'+org.id});customer=result.id;await sql`UPDATE organizations SET stripe_customer_id=${customer} WHERE id=${org.id}`;}
   if(action==='portal'){const result=await stripe.billingPortal.sessions.create({customer,return_url:base+'/dashboard'});return Response.json({url:result.url});}

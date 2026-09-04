@@ -14,7 +14,8 @@ export async function requireUser(request?: Request) {
   if(!request.headers.get('content-type')?.startsWith('application/json')) throw new HttpError(415,'JSON is required.');
   const origin=request.headers.get('origin');
   const expected=process.env.APP_BASE_URL;
-  if(!origin || origin!==(expected||new URL(request.url).origin)) throw new HttpError(403,'Request origin is not allowed.');
+  const allowed=[expected||new URL(request.url).origin,...(process.env.ADDITIONAL_APP_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean)];
+  if(!origin || !allowed.includes(origin)) throw new HttpError(403,'Request origin is not allowed.');
  }
  return user;
 }

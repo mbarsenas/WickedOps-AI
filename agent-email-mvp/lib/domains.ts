@@ -16,7 +16,7 @@ export async function refreshDomain(id:string,org:string,verify=false){
  if(!row)throw new HttpError(404,'Domain not found.');
  if(!row.provider_id){
   if(!row.ownership_verified_at){let owns=false;try{owns=await ownsDomain(row.name,row.ownership_token);}catch{throw new HttpError(503,'DNS lookup is temporarily unavailable. Please retry.');}
-   if(!owns)throw new HttpError(409,'Add the AgentMail ownership TXT record shown below, then retry. DNS updates can take time to become visible.');
+   if(!owns)throw new HttpError(409,'Add the SenderPermit ownership TXT record shown below, then retry. DNS updates can take time to become visible.');
    await sql`UPDATE sending_domains SET ownership_verified_at=now() WHERE id=${id} AND organization_id=${org}`;
   }
   const claimed=await sql`UPDATE sending_domains SET setup_lease_until=now()+interval '2 minutes' WHERE id=${id} AND organization_id=${org} AND provider_id IS NULL AND (setup_lease_until IS NULL OR setup_lease_until<now()) RETURNING id`;
