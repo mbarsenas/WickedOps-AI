@@ -6,3 +6,5 @@ dist/
 .env.local
 .dev.vars
 *.tsbuildinfo
+transport.sqlite*
+transport-service/*.sqlite*

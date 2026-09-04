@@ -1,3 +1,4 @@
+import {ResendTransport} from './transport/resend';
 import {z} from 'zod';
 import {db} from './db';
 import {mail} from './email';
@@ -34,16 +35,15 @@ export async function sendApi(req:Request){
   if(!quota[0]){await sql`UPDATE email_api_events SET status='quota_exceeded',lease_until=NULL WHERE id=${row.id}`;return fail(429,'Monthly send limit reached.');}
  }
  try{
-  const sent=await mail().emails.send({from:body.from,to:body.to,subject:body.subject,text:body.text,replyTo:body.reply_to},{idempotencyKey:'agentmail/'+row.id});
-  if(sent.error||!sent.data?.id)throw new Error(sent.error?.message||'Provider unavailable');
+  const sent=await new ResendTransport(mail()).submit(org,'agentmail/'+row.id,{from:body.from,to:body.to,subject:body.subject,text:body.text,replyTo:body.reply_to});
   await sql.transaction([
-   sql`UPDATE email_api_events SET provider_id=${sent.data.id},status='accepted',lease_until=NULL,error=NULL,updated_at=now() WHERE id=${row.id}`,
+   sql`UPDATE email_api_events SET provider_id=${sent.id},status='accepted',lease_until=NULL,error=NULL,updated_at=now() WHERE id=${row.id}`,
    sql`UPDATE monthly_usage SET accepted=accepted+${body.to.length},reserved=GREATEST(0,reserved-${body.to.length}) WHERE organization_id=${org} AND period=date_trunc('month',${row.created_at}::timestamptz)::date`,
    sql`UPDATE api_keys SET last_used_at=now() WHERE id=${key.id}`,
-   sql`INSERT INTO audit_events(organization_id,event_type,actor_type,actor_id,data) VALUES(${org},'api.email.accepted','api_key',${key.id},${JSON.stringify({provider_id:sent.data.id,message_id:row.id})}::jsonb)`
+   sql`INSERT INTO audit_events(organization_id,event_type,actor_type,actor_id,data) VALUES(${org},'api.email.accepted','api_key',${key.id},${JSON.stringify({provider_id:sent.id,message_id:row.id})}::jsonb)`
   ]);
-  await enqueueEvent(org,'email.sent','sent/'+sent.data.id,{id:sent.data.id});await dispatchWebhooks(org);
-  return Response.json({id:sent.data.id,status:'accepted'},{status:202});
+  await enqueueEvent(org,'email.sent','sent/'+sent.id,{id:sent.id});await dispatchWebhooks(org);
+  return Response.json({id:sent.id,status:'accepted'},{status:202});
  }catch{
   await sql`UPDATE email_api_events SET error='Delivery acceptance is uncertain. Retry with the same Idempotency-Key.',updated_at=now() WHERE id=${row.id} AND provider_id IS NULL`;
   return fail(502,'Delivery acceptance is uncertain. Retry with the same Idempotency-Key after three minutes.');
