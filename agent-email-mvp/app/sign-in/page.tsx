@@ -1,6 +1,6 @@
 'use client';
 import {useState} from 'react';
-function destination(){const p=new URLSearchParams(window.location.search).get('return_to');return p==='/support'||p==='/dashboard?view=billing'?p:'/dashboard';}
+function destination(){const p=new URLSearchParams(window.location.search).get('return_to');return p==='/try-ai'||p==='/support'||p==='/dashboard?view=billing'?p:'/dashboard';}
 async function authRequest(path:string,body:Record<string,string>){const r=await fetch('/api/auth/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const b=await r.json();if(!r.ok)throw Error(b.message||'Sign-in failed. Please try again.');return b;}
 export default function SignIn(){
  const [email,setEmail]=useState(''),[code,setCode]=useState(''),[sent,setSent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
