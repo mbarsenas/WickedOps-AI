@@ -1,0 +1,2 @@
+// Only aliased by vite.lab.config.ts. No model call or AI allowance is consumed.
+export async function proposeReply(_input:unknown){return {action_type:'send_email_reply' as const,reply_text:'Thanks for your message. This is a sample reply from the SenderPermit local mail lab. It is being held for your review before sending.',rationale:'Local test fixture, not an AI-generated reply. This exercises the real policy, approval, and delivery workflow.'};}

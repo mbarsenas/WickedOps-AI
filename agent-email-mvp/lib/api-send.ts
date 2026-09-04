@@ -1,7 +1,6 @@
-import {ResendTransport} from './transport/resend';
+import {outbound} from './transport/active';
 import {z} from 'zod';
 import {db} from './db';
-import {mail} from './email';
 import {enqueueEvent,dispatchWebhooks} from './webhooks';
 export const emailInput=z.object({from:z.string().trim().email().transform(s=>s.toLowerCase()),to:z.union([z.string().email(),z.array(z.string().email()).min(1).max(50)]).transform(v=>(Array.isArray(v)?v:[v]).map(s=>s.toLowerCase())),subject:z.string().min(1).max(998),text:z.string().min(1).max(200000),reply_to:z.string().email().optional()}).strict();
 export async function digest(value:string){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(v=>v.toString(16).padStart(2,'0')).join('');}
@@ -18,7 +17,7 @@ export async function sendApi(req:Request){
  const hash=await digest(JSON.stringify(body));const org=key.organization_id;
  const existing=(await sql`SELECT * FROM email_api_events WHERE organization_id=${org} AND idempotency_key=${idempotency}`)[0];
  if(existing&&existing.payload_hash!==hash)return fail(409,'This Idempotency-Key belongs to a different message.');
- if(existing?.provider_id){await enqueueEvent(org,'email.sent','sent/'+existing.provider_id,{id:existing.provider_id});await dispatchWebhooks(org);return Response.json({id:existing.provider_id,status:existing.status},{status:200});}
+ if(existing?.provider_id){if(existing.status!=='queued'){await enqueueEvent(org,'email.sent','sent/'+existing.provider_id,{id:existing.provider_id});await dispatchWebhooks(org);}return Response.json({id:existing.provider_id,status:existing.status},{status:200});}
  if(existing?.status==='quota_exceeded')return fail(429,'Monthly send limit reached.');
  if(existing&&Date.now()-new Date(existing.created_at).getTime()>23*3600000)return fail(409,'Retry window expired. Check delivery before creating another send.');
  const domain=(await sql`SELECT id FROM sending_domains WHERE organization_id=${org} AND name=${body.from.split('@')[1]} AND status='verified'`)[0];
@@ -35,15 +34,15 @@ export async function sendApi(req:Request){
   if(!quota[0]){await sql`UPDATE email_api_events SET status='quota_exceeded',lease_until=NULL WHERE id=${row.id}`;return fail(429,'Monthly send limit reached.');}
  }
  try{
-  const sent=await new ResendTransport(mail()).submit(org,'agentmail/'+row.id,{from:body.from,to:body.to,subject:body.subject,text:body.text,replyTo:body.reply_to});
+  const sent=await outbound().submit(org,'agentmail/'+row.id,{from:body.from,to:body.to,subject:body.subject,text:body.text,replyTo:body.reply_to});
   await sql.transaction([
-   sql`UPDATE email_api_events SET provider_id=${sent.id},status='accepted',lease_until=NULL,error=NULL,updated_at=now() WHERE id=${row.id}`,
+   sql`UPDATE email_api_events SET provider_id=${sent.id},status=${sent.stage==='queued'?'queued':'accepted'},lease_until=NULL,error=NULL,updated_at=now() WHERE id=${row.id}`,
    sql`UPDATE monthly_usage SET accepted=accepted+${body.to.length},reserved=GREATEST(0,reserved-${body.to.length}) WHERE organization_id=${org} AND period=date_trunc('month',${row.created_at}::timestamptz)::date`,
    sql`UPDATE api_keys SET last_used_at=now() WHERE id=${key.id}`,
    sql`INSERT INTO audit_events(organization_id,event_type,actor_type,actor_id,data) VALUES(${org},'api.email.accepted','api_key',${key.id},${JSON.stringify({provider_id:sent.id,message_id:row.id})}::jsonb)`
   ]);
-  await enqueueEvent(org,'email.sent','sent/'+sent.id,{id:sent.id});await dispatchWebhooks(org);
-  return Response.json({id:sent.id,status:'accepted'},{status:202});
+  if(sent.stage!=='queued'){await enqueueEvent(org,'email.sent','sent/'+sent.id,{id:sent.id});await dispatchWebhooks(org);}
+  return Response.json({id:sent.id,status:sent.stage==='queued'?'queued':'accepted'},{status:202});
  }catch{
   await sql`UPDATE email_api_events SET error='Delivery acceptance is uncertain. Retry with the same Idempotency-Key.',updated_at=now() WHERE id=${row.id} AND provider_id IS NULL`;
   return fail(502,'Delivery acceptance is uncertain. Retry with the same Idempotency-Key after three minutes.');

@@ -1,5 +1,6 @@
+import {outbound,receive} from './transport/active';
 import {AIDraftingLimit} from './ai-usage';
-import {resendClient,ResendTransport} from './transport/resend';
+import {resendClient} from './transport/resend';
 import { db, audit } from './db';
 import { evaluatePolicy } from './policy';
 import { proposeReply } from './runtime';
@@ -27,15 +28,15 @@ export async function executeAction(id:string,actor:string){
  const claim=await sql`INSERT INTO action_executions(action_id,state,lease_until) VALUES(${id},'sending',now()+interval '3 minutes') ON CONFLICT(action_id) DO UPDATE SET state='sending',lease_until=now()+interval '3 minutes' WHERE action_executions.state<>'sent' AND (action_executions.lease_until IS NULL OR action_executions.lease_until<now()) AND action_executions.created_at>now()-interval '23 hours' RETURNING action_id`;
  if(!claim[0])throw new HttpError(409,'Already sending, already sent, or outside the safe retry window. Check delivery before retrying.');
  try{
-  const sent=await new ResendTransport(mail()).submit(a.organization_id,'governed-email/'+id,{...payload,to:[payload.to]});
+  const sent=await outbound().submit(a.organization_id,'governed-email/'+id,{...payload,to:[payload.to]});
   await sql.transaction([
    sql`INSERT INTO messages(conversation_id,direction,provider_message_id,from_address,to_address,subject,text_body,sent_at) VALUES(${a.conversation_id},'outbound',${sent.id},${payload.from},${payload.to},${payload.subject},${payload.text},now()) ON CONFLICT(provider_message_id) WHERE provider_message_id IS NOT NULL DO NOTHING`,
    sql`UPDATE proposed_actions SET status='executed',updated_at=now() WHERE id=${id}`,
    sql`UPDATE action_executions SET state='sent',provider_id=${sent.id},lease_until=NULL,last_error=NULL WHERE action_id=${id}`,
    sql`UPDATE conversations SET last_message_at=now() WHERE id=${a.conversation_id}`,
-   sql`INSERT INTO audit_events(organization_id,agent_id,conversation_id,event_type,actor_type,actor_id,data) VALUES(${a.organization_id},${a.agent_id},${a.conversation_id},'email.sent',${actor==='system'?'system':'human'},${actor},${JSON.stringify({action_id:id,provider_id:sent.id})}::jsonb)`
+   sql`INSERT INTO audit_events(organization_id,agent_id,conversation_id,event_type,actor_type,actor_id,data) VALUES(${a.organization_id},${a.agent_id},${a.conversation_id},${sent.stage==='queued'?'email.queued':'email.sent'},${actor==='system'?'system':'human'},${actor},${JSON.stringify({action_id:id,provider_id:sent.id})}::jsonb)`
   ]);
-  await enqueueEvent(a.organization_id,'email.sent','sent/'+sent.id,{id:sent.id});await dispatchWebhooks(a.organization_id);
+  if(sent.stage!=='queued'){await enqueueEvent(a.organization_id,'email.sent','sent/'+sent.id,{id:sent.id});await dispatchWebhooks(a.organization_id);}
   return {status:'executed',provider_id:sent.id};
  }catch(e){
   await sql.transaction([sql`UPDATE proposed_actions SET status='failed',updated_at=now() WHERE id=${id} AND status<>'executed'`,sql`UPDATE action_executions SET state='failed',lease_until=NULL,last_error=${e instanceof Error?e.message.slice(0,500):'Send failed'} WHERE action_id=${id} AND state<>'sent'`]);
@@ -52,9 +53,7 @@ export async function ingest(providerId:string){
   throw new HttpError(503,'Message is processing. Retry later.');
  }
  try{
-  const received=await mail().emails.receiving.get(providerId);
-  if(received.error||!received.data)throw new Error(received.error?.message||'Unable to retrieve email');
-  const email=received.data; const from=address(email.from);
+  const email=await receive(providerId); const from=address(email.from);
   await captureInbound(providerId,{from,to:email.to.map(address),subject:email.subject,text:email.text});
   const recipients=email.to.map(address);
   const identities=await sql`SELECT ei.address,ei.status AS identity_status,a.* FROM email_identities ei JOIN agents a ON a.id=ei.agent_id WHERE ei.address=ANY(${recipients}) ORDER BY ei.created_at`;

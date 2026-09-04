@@ -10,3 +10,4 @@ transport.sqlite*
 transport-service/*.sqlite*
 
 transport-service/lab/.env
+transport-service/lab/dashboard.env

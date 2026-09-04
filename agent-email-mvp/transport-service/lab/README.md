@@ -14,3 +14,15 @@ Data lives in dedicated Docker volumes. Do not remove volumes unless intentional
 The fixed-destination gateway exposes the three localhost ports. Only the gateway joins the access network; Postfix and Mailpit remain on the internal network. It is not a general-purpose proxy. Debian Postfix's SMTP chroot is disabled inside the lab container so Docker DNS and the recipient allowlist resolve correctly.
 
 Verified locally: outbound API-to-Postfix-to-Mailpit delivery, inbound SMTP delivery to the allowed recipient, duplicate submission replay without duplicate mail, rejection of unknown inbound recipients, and rejection of unrelated relay destinations. These checks passed again after rebuilding and recreating the transport container with persistent volumes. Local MTA acceptance is still not a public delivery receipt.
+
+## Connected SenderPermit dashboard
+
+Start the mail lab first, then run `node transport-service/lab/start-dashboard.mjs` from the app directory. Open http://localhost:4312/signin-with-chatgpt to enter the local workspace. The local sign-in creates a localhost-only test session; it is not a ChatGPT sign-in or a production login.
+
+The launcher reads the ignored `dashboard.env` file containing `DATABASE_URL` for the existing isolated test branch (ep-wispy-bird). It explicitly overrides inherited database configuration and clears production email, billing, authentication and model credentials. It creates only the dedicated lab workspace and its local domains/identity. Keep this file private. The database is an isolated Neon test database, not a database running on this computer.
+
+In Overview, create an API key to enable the outgoing test, or click Receive test message to send a real SMTP message into Postfix. Incoming mail is imported into Conversations and processed through the existing policy/approval logic. A sample reply waits in Approvals. Approve sends through the local queue and Postfix into Mailpit; Reject sends nothing. The dashboard checks incoming mail every ten seconds while open. Held or failed messages remain available for explicit retry in Actions. API mail remains labeled queued: this lab does not manufacture public delivery receipts.
+
+Drafting is an explicitly labeled deterministic test fixture; there are no model calls or AI allowance deductions. Real AI integration is not part of this lab step. The lab uses the same production API-key, quota, policy, approval, rejection and audit handlers, with local transport and sign-in adapters supplied only by `vite.lab.config.ts`. The ordinary build keeps Resend and normal authentication, and the lab route returns 404. The lab config refuses production builds.
+
+Run `node transport-service/lab/verify-dashboard.mjs` while the dashboard is running to verify unauthenticated rejection, CSRF, API delivery, replay without duplication, inbound conversations, pending approvals with no early send, approval delivery, rejection, repeat approval rejection and audit records. The script creates test messages and revokes its test API key afterward. Stop the dashboard with Ctrl+C; Docker mail services can remain running.
