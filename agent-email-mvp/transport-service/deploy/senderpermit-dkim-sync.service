@@ -1,0 +1,7 @@
+[Unit]
+Description=Synchronize SenderPermit customer DKIM signing domains
+After=senderpermit-intake.service opendkim.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/senderpermit-sync-dkim

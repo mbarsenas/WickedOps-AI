@@ -1,0 +1,8 @@
+**
+!transport-service/
+!transport-service/*.mjs
+!transport-service/lab/
+!transport-service/lab/Dockerfile
+!transport-service/lab/package.json
+!transport-service/lab/package-lock.json
+!transport-service/lab/start.sh

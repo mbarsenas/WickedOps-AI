@@ -1,0 +1,42 @@
+name: senderpermit-mail-lab
+services:
+  transport:
+    build:
+      context: ../..
+      dockerfile: transport-service/lab/Dockerfile
+    environment:
+      LOCAL_MAIL_LAB: 'yes'
+      TRANSPORT_DB: /data/transport.sqlite
+      TRANSPORT_ACCOUNTS: ${TRANSPORT_ACCOUNTS:?Run start-local.ps1 first}
+      ENABLE_MTA: 'yes'
+    volumes:
+      - queue:/data
+      - postfix:/var/spool/postfix
+    networks: [mail-lab]
+    depends_on: [inbox]
+  inbox:
+    image: axllent/mailpit@sha256:c96991d9bef73594c246d89ca81411d4e916f03e76a7d2d72fa2ab5dd3c9ce24
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - inbox:/data
+    networks: [mail-lab]
+  gateway:
+    image: node:24-bookworm-slim
+    command: ['node', '/gateway.mjs']
+    volumes:
+      - ./gateway.mjs:/gateway.mjs:ro
+    ports:
+      - '127.0.0.1:4380:4380'
+      - '127.0.0.1:2525:2525'
+      - '127.0.0.1:8025:8025'
+    networks: [mail-lab, access]
+    depends_on: [transport, inbox]
+networks:
+  access:
+  mail-lab:
+    internal: true
+volumes:
+  queue:
+  postfix:
+  inbox:

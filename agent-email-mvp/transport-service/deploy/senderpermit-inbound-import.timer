@@ -1,0 +1,8 @@
+[Unit]
+Description=Check SenderPermit pilot inbox every minute
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=60
+Unit=senderpermit-inbound-import.service
+[Install]
+WantedBy=timers.target

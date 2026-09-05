@@ -1,0 +1,6 @@
+'use client';
+import {useState} from 'react';
+export default function Onboarding({email}:{email:string}){
+ const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ return <main className="auth-card"><a className="brand" href="/">SenderPermit</a><h1 style={{marginTop:30}}>Create your workspace</h1><p>Your domains, API keys, and email activity belong to this workspace.</p><p className="caption">Signed in as {email}</p><form className="stack" onSubmit={async e=>{e.preventDefault();const name=new FormData(e.currentTarget).get('name');setBusy(true);setError('');try{const r=await fetch('/api/workspaces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const b=await r.json();if(!r.ok)throw new Error(b.error);window.location.reload();}catch(e){setError(e instanceof Error?e.message:'Unable to create workspace');setBusy(false);}}}><label>Workspace name<input name="name" placeholder="Your company" minLength={2} maxLength={100} required/></label><p className="caption">Developer preview includes 100 API send attempts per month. Verify your own domain before sending.</p>{error&&<div className="error" role="alert">{error}</div>}<button disabled={busy}>{busy?'Creating…':'Create workspace →'}</button></form></main>;
+}
