@@ -31,7 +31,14 @@ class PlainHTML(html.parser.HTMLParser):
 
 def capture(config,recipient,sender,queue_id,raw):
     recipient=recipient.lower()
-    workspace=config['recipients'].get(recipient)
+    workspace=config.get('recipients',{}).get(recipient)
+    if not workspace:
+        with sqlite3.connect(config['database'],timeout=10) as lookup:
+            try:
+                row=lookup.execute('select workspace from provisioned_recipients where recipient=?',(recipient,)).fetchone()
+                workspace=row[0] if row else None
+            except sqlite3.OperationalError:
+                workspace=None
     if not workspace: raise ValueError('Recipient is not provisioned')
     if len(raw)>5000000: raise ValueError('Message exceeds configured size')
     message=email.parser.BytesParser(policy=email.policy.default).parsebytes(raw)

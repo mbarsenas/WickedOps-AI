@@ -20,9 +20,9 @@ export async function sendApi(req:Request){
  if(existing?.provider_id){if(!existing.provider_id.startsWith('sp_')){await enqueueEvent(org,'email.sent','sent/'+existing.provider_id,{id:existing.provider_id});await dispatchWebhooks(org);}return Response.json({id:existing.provider_id,status:existing.status},{status:200});}
  if(existing?.status==='quota_exceeded')return fail(429,'Monthly send limit reached.');
  if(existing&&Date.now()-new Date(existing.created_at).getTime()>23*3600000)return fail(409,'Retry window expired. Check delivery before creating another send.');
- const domain=(await sql`SELECT id FROM sending_domains WHERE organization_id=${org} AND name=${body.from.split('@')[1]} AND status='verified'`)[0];
+ const domain=(await sql`SELECT id,provider_id FROM sending_domains WHERE organization_id=${org} AND name=${body.from.split('@')[1]} AND status='verified'`)[0];
  if(!domain)return fail(403,'The sending domain must be verified and owned by this workspace.');
- let transport;try{transport=outbound(org);}catch(e){return fail(503,e instanceof Error?e.message:'Workspace sending is paused.');}
+ let transport;try{transport=outbound(org,domain.provider_id?.startsWith('senderpermit:'));}catch(e){return fail(503,e instanceof Error?e.message:'Workspace sending is paused.');}
  let row:any;
  if(existing){row=(await sql`UPDATE email_api_events SET lease_until=now()+interval '3 minutes',status='sending' WHERE id=${existing.id} AND provider_id IS NULL AND lease_until<now() RETURNING *`)[0];}
  else{

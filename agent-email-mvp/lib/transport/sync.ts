@@ -15,7 +15,7 @@ export async function syncDelivery(org:string){
  for(let offset=0;offset<batch.length;offset+=5)await Promise.all(batch.slice(offset,offset+5).map(async r=>{
  try{
  if(process.env.SENDERPERMIT_TRANSPORT_ORIGIN!=='https://mail.senderpermit.com'||!process.env.SENDERPERMIT_TRANSPORT_TOKEN)throw Error('Configuration unavailable');
- const result=await fetch('https://mail.senderpermit.com/v1/submissions/'+encodeURIComponent(r.provider_id),{headers:{authorization:'Bearer '+process.env.SENDERPERMIT_TRANSPORT_TOKEN},redirect:'manual',signal:AbortSignal.timeout(4000)});
+ const result=await fetch('https://mail.senderpermit.com/v1/submissions/'+encodeURIComponent(r.provider_id),{headers:{authorization:'Bearer '+(process.env.SENDERPERMIT_CONTROL_TOKEN||process.env.SENDERPERMIT_TRANSPORT_TOKEN),'x-senderpermit-workspace':org},redirect:'manual',signal:AbortSignal.timeout(4000)});
  if(!result.ok)throw Error('Status unavailable');
  const summary=summarizeDelivery(await result.json(),r.recipients,r.created_at);
  items[r.kind+'/'+r.id]=summary;

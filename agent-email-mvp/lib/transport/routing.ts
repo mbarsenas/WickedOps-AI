@@ -6,9 +6,11 @@ export function deliveryInfo(workspace:string){
  const ready=!!process.env.SENDERPERMIT_TRANSPORT_TOKEN&&process.env.SENDERPERMIT_TRANSPORT_ORIGIN==='https://mail.senderpermit.com';
  return {name:pilot?'SenderPermit · Direct':'Resend',sending_enabled:!pilot||(ready&&process.env.SENDERPERMIT_PILOT_SENDING==='enabled'),pilot};
 }
-export function pilotTransport(workspace:string):OutboundTransport|null{
- if(workspace!==PILOT_WORKSPACE)return null;
+export function pilotTransport(workspace:string,direct=false):OutboundTransport|null{
+ if(workspace!==PILOT_WORKSPACE&&!direct)return null;
  if(!deliveryInfo(workspace).sending_enabled)throw new HttpError(503,'Sending is paused for this test workspace while SenderPermit direct delivery is being activated. No email was queued.');
- const transport=new SenderPermitTransport(process.env.SENDERPERMIT_TRANSPORT_ORIGIN!,process.env.SENDERPERMIT_TRANSPORT_TOKEN!);
+ const token=direct?process.env.SENDERPERMIT_CONTROL_TOKEN:process.env.SENDERPERMIT_TRANSPORT_TOKEN;
+ if(!token)throw new HttpError(503,'SenderPermit direct delivery is not configured.');
+ const transport=new SenderPermitTransport(process.env.SENDERPERMIT_TRANSPORT_ORIGIN!,token);
  return {submit(boundWorkspace,key,message){if(boundWorkspace!==workspace)throw new HttpError(403,'Transport workspace mismatch.');return transport.submit(workspace,key,message);}};
 }

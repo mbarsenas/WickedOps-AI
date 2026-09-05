@@ -3,7 +3,7 @@ export const transportName='Resend';
 export const localLab=false;
 export {deliveryInfo} from './routing';
 import {pilotTransport} from './routing';
-export function outbound(workspace:string){return pilotTransport(workspace)||new ResendTransport();}
+export function outbound(workspace:string,direct=false){return pilotTransport(workspace,direct)||new ResendTransport();}
 import {receiveAWS} from './inbound';
 export async function receive(id:string){
  if(id.startsWith('spi_'))return receiveAWS(id);

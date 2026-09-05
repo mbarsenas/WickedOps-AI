@@ -7,7 +7,7 @@ import { db,audit,organizationId } from '../../../lib/db';
 import { requireWorkspace,errorResponse,HttpError } from '../../../lib/auth';
 import { mail,ingest,executeAction,address } from '../../../lib/email';
 import {billingConfigured} from '../../../lib/billing';
-import {refreshDomain,addDomain} from '../../../lib/domains';
+import {refreshDomain,addDomain,enableReceiving,provisionRecipient} from '../../../lib/domains';
 import {publicWebhookUrl} from '../../../lib/webhook-signing';
 import {dispatchWebhooks} from '../../../lib/webhooks';
 export const dynamic='force-dynamic';
@@ -55,7 +55,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>
  }
  if(path[0]==='domains'&&path[1]){
   const id=uuid.parse(path[1]);
-  if(path[2]==='receiving'){const d=await refreshDomain(id,org);const result=await mail().domains.update({id:d.provider_id,capabilities:{receiving:'enabled'}});if(result.error)throw new HttpError(502,'Unable to enable receiving.');}
+  if(path[2]==='receiving')return Response.json(await enableReceiving(id,org));
   return Response.json(await refreshDomain(id,org,path[2]==='verify'));
  }
  if(path[0]==='agents'&&path.length===1){
@@ -76,6 +76,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path:string[]}>
   if(!match)throw new HttpError(400,'Use a domain owned by this workspace.');
   const detail=await refreshDomain(match.id,org);
   if(detail.status!=='verified'||detail.receiving!=='enabled')throw new HttpError(400,'Verify this domain and enable receiving before assigning an identity.');
+  if(match.provider_id?.startsWith('senderpermit:'))await provisionRecipient(org,b.address);
   const existing=await sql`SELECT id FROM email_identities WHERE lower(address)=${b.address}`;if(existing[0])throw new HttpError(409,'That identity is already assigned.');
   const row=(await sql`INSERT INTO email_identities(agent_id,address,provider_domain) VALUES(${b.agent_id},${b.address},${domain}) RETURNING *`)[0];
   await audit('identity.created',user.email,{address:b.address},b.agent_id);return Response.json(row,{status:201});

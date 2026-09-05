@@ -42,6 +42,8 @@ PY
 fi
 install -m 644 "$source_dir/deploy/senderpermit-intake.service" /etc/systemd/system/
 install -m 644 "$source_dir/deploy/senderpermit-worker.service" /etc/systemd/system/
+install -m 755 "$source_dir/deploy/sync-dkim-domains.py" /usr/local/sbin/senderpermit-sync-dkim
+install -m 644 "$source_dir/deploy/senderpermit-dkim-sync.service" "$source_dir/deploy/senderpermit-dkim-sync.timer" /etc/systemd/system/
 # Fail closed if the signer is unavailable. Send only on the verified IPv4 path.
 postconf -e 'myorigin=senderpermit.com' 'milter_default_action=tempfail' 'inet_protocols=ipv4'
 if test -f /var/spool/postfix/etc/resolv.conf; then chown root:root /var/spool/postfix/etc/resolv.conf; fi
@@ -49,4 +51,5 @@ postfix check
 systemctl restart postfix
 systemctl daemon-reload
 systemctl enable --now senderpermit-intake
+systemctl enable --now senderpermit-dkim-sync.timer
 echo "Intake installed on 127.0.0.1:4380. Worker NOT enabled. Backup: $backup_dir"
