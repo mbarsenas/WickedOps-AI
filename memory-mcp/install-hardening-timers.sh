@@ -80,7 +80,7 @@ systemctl start "$BACKUP_SERVICE"
 systemctl is-active --quiet "$SELFTEST_TIMER"
 systemctl is-active --quiet "$BACKUP_TIMER"
 
-latest_backup="$(find "$ROOT/backups-db" -maxdepth 1 -type f -name 'wickedops-memory-*.sql.gz' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
+latest_backup="$(find "$ROOT/backups/db" -maxdepth 1 -type f -name 'wickedops-memory-*.sql.gz' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
 [[ -n "$latest_backup" ]] || { echo "No database backup produced" >&2; exit 1; }
 gzip -t "$latest_backup"
 
