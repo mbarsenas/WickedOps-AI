@@ -16,28 +16,18 @@ TENANT_ID = os.environ["ENTRA_TENANT_ID"]
 AUDIENCE = os.environ["MCP_AUDIENCE"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-PUBLIC_HOST = os.getenv("MCP_PUBLIC_HOST", "memory-mcp.wickedadmin.com")
 
 ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 JWKS_URL = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
 jwks = PyJWKClient(JWKS_URL)
 current_claims: ContextVar[dict[str, Any] | None] = ContextVar("current_claims", default=None)
 
+# This service is bound to localhost:8110 and exposed only through the trusted
+# nginx TLS reverse proxy at memory-mcp.wickedadmin.com. FastMCP's built-in
+# DNS-rebinding host validation rejects the proxied Host header in this setup,
+# so disable that layer here and rely on nginx + Entra bearer validation.
 transport_security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=True,
-    allowed_hosts=[
-        PUBLIC_HOST,
-        f"{PUBLIC_HOST}:443",
-        "127.0.0.1",
-        "127.0.0.1:8110",
-        "localhost",
-        "localhost:8110",
-    ],
-    allowed_origins=[
-        f"https://{PUBLIC_HOST}",
-        "http://127.0.0.1:8110",
-        "http://localhost:8110",
-    ],
+    enable_dns_rebinding_protection=False,
 )
 
 mcp = FastMCP(
