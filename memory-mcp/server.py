@@ -10,31 +10,48 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from jwt import PyJWKClient
 from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.transport_security import TransportSecuritySettings
 
 TENANT_ID = os.environ["ENTRA_TENANT_ID"]
 AUDIENCE = os.environ["MCP_AUDIENCE"]
 DATABASE_URL = os.environ["DATABASE_URL"]
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+PUBLIC_HOST = os.getenv("MCP_PUBLIC_HOST", "memory-mcp.wickedadmin.com")
 
 ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 JWKS_URL = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
 jwks = PyJWKClient(JWKS_URL)
 current_claims: ContextVar[dict[str, Any] | None] = ContextVar("current_claims", default=None)
 
+transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=[
+        PUBLIC_HOST,
+        f"{PUBLIC_HOST}:443",
+        "127.0.0.1",
+        "127.0.0.1:8110",
+        "localhost",
+        "localhost:8110",
+    ],
+    allowed_origins=[
+        f"https://{PUBLIC_HOST}",
+        "http://127.0.0.1:8110",
+        "http://localhost:8110",
+    ],
+)
+
 mcp = FastMCP(
     "WickedOps Memory",
     stateless_http=True,
     json_response=True,
+    transport_security=transport_security,
 )
 
-# Build the MCP ASGI app at module import time so mcp.session_manager exists.
 mcp_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Mounted sub-app lifespans are not run by Starlette/FastAPI. The host app
-    # must explicitly run FastMCP's session manager for the process lifetime.
     async with mcp.session_manager.run():
         yield
 
@@ -368,8 +385,6 @@ async def protected_resource_metadata():
     }
 
 
-# Keep parent routes first, then mount FastMCP at root. FastMCP's internal
-# streamable HTTP route remains /mcp, which is the public connector URL.
 app.mount("/", mcp_app)
 
 
