@@ -11,8 +11,8 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$ClientDisplayName = 'WickedOps Memory MCP ChatGPT',
 
-    [Parameter(Mandatory=$true)]
-    [string]$ChatGptRedirectUri
+    [Parameter(Mandatory=$false)]
+    [string]$ChatGptRedirectUri = 'https://chatgpt.com/connector_platform_oauth_redirect'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -103,6 +103,10 @@ Write-Host "==> Ensuring ChatGPT OAuth client application"
 $clientApp = Get-MgApplication -Filter "displayName eq '$ClientDisplayName'" -All | Select-Object -First 1
 $web = @{
     RedirectUris = @($ChatGptRedirectUri)
+    ImplicitGrantSettings = @{
+        EnableAccessTokenIssuance = $false
+        EnableIdTokenIssuance = $false
+    }
 }
 $resourceAccess = @(
     @{
@@ -134,6 +138,18 @@ if (-not $clientApp) {
 $clientSp = Get-MgServicePrincipal -Filter "appId eq '$($clientApp.AppId)'" -All | Select-Object -First 1
 if (-not $clientSp) { $clientSp = New-MgServicePrincipal -AppId $clientApp.AppId }
 
+Write-Host "==> Ensuring delegated permission grant"
+$grant = Get-MgOauth2PermissionGrant -Filter "clientId eq '$($clientSp.Id)' and resourceId eq '$($apiSp.Id)'" -All | Select-Object -First 1
+if (-not $grant) {
+    New-MgOauth2PermissionGrant -BodyParameter @{
+        ClientId = $clientSp.Id
+        ConsentType = 'Principal'
+        PrincipalId = (Get-MgContext).Account
+        ResourceId = $apiSp.Id
+        Scope = $scopeValue
+    } | Out-Null
+}
+
 Write-Host "==> Creating a new ChatGPT client secret"
 $secret = Add-MgApplicationPassword -ApplicationId $clientApp.Id -PasswordCredential @{
     DisplayName = 'ChatGPT Memory MCP connector'
@@ -152,9 +168,11 @@ Write-Host "CHATGPT_CLIENT_APP_ID=$($clientApp.AppId)"
 Write-Host "CHATGPT_REDIRECT_URI=$ChatGptRedirectUri"
 Write-Host "AUTHORIZATION_URL=https://login.microsoftonline.com/$TenantId/oauth2/v2.0/authorize"
 Write-Host "TOKEN_URL=https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+Write-Host "OAUTH_SCOPES=openid offline_access $scopeFull"
 Write-Host ''
 Write-Host 'CLIENT_SECRET_BEGIN'
 Write-Host $secret.SecretText
 Write-Host 'CLIENT_SECRET_END'
 Write-Host ''
-Write-Host 'IMPORTANT: Store the client secret in the ChatGPT plugin configuration only. Do not paste it into chat or commit it to GitHub.'
+Write-Host 'IMPORTANT: Store the client secret only in the ChatGPT app connection. Do not paste it into chat or commit it to GitHub.'
+Write-Host 'If ChatGPT shows a connector-specific callback URL instead of the stable platform redirect, rerun with -ChatGptRedirectUri set to that exact URL.'
