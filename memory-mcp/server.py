@@ -71,7 +71,7 @@ def embed(text: str) -> list[float]:
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if request.url.path.startswith("/.well-known/"):
+    if request.url.path == "/healthz" or request.url.path.startswith("/.well-known/"):
         return await call_next(request)
     try:
         claims = verify_token(request)
