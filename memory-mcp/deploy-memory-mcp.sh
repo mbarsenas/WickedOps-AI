@@ -104,7 +104,19 @@ cat /tmp/wickedops-memory-health.json
 
 log "Checking OAuth protected-resource metadata"
 meta="$(curl -fsS --max-time 10 "http://127.0.0.1:${LOCAL_PORT}/.well-known/oauth-protected-resource/mcp")"
-printf '%s' "$meta" | "$PY" -c 'import sys,json,os; from dotenv import load_dotenv; load_dotenv("/opt/wickedops-memory-mcp/.env"); d=json.load(sys.stdin); expected=os.environ["MCP_RESOURCE"]; assert d.get("resource")==expected, f"resource mismatch: {d.get(\"resource\")} != {expected}"; assert "MCP.Access" in d.get("scopes_supported",[]), "MCP.Access not advertised"; print("OAuth metadata validation: PASS")'
+META="$meta" "$PY" - <<'PY'
+from dotenv import load_dotenv
+import json, os
+load_dotenv('/opt/wickedops-memory-mcp/.env')
+d=json.loads(os.environ['META'])
+expected=os.environ['MCP_RESOURCE']
+actual=d.get('resource')
+if actual != expected:
+    raise SystemExit(f'resource mismatch: {actual} != {expected}')
+if 'MCP.Access' not in d.get('scopes_supported', []):
+    raise SystemExit('MCP.Access not advertised')
+print('OAuth metadata validation: PASS')
+PY
 
 if command -v nginx >/dev/null 2>&1; then
   log "Checking nginx configuration"
