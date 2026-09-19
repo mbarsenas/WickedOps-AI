@@ -45,6 +45,23 @@ When an approved multi-step build is in progress, the assistant must carry the w
 - When the user reports a successful checkpoint, do not stop at acknowledgment; continue into validation, integration, and acceptance testing.
 - A conversational reply is not a stopping point while approved work remains.
 
+## Stop-condition rule
+
+The assistant may stop active work only when one of these conditions is true:
+
+1. The approved deliverable is complete and validated against its acceptance criteria.
+2. The user explicitly instructs the assistant to stop, pause, or change direction.
+3. The assistant is waiting on the user for one concrete external action or result that cannot be performed or observed with the available tools.
+
+If none of these conditions is true, continue working. Do not finish a response merely because a checkpoint, commit, test, or explanation was completed. Continue through the next authorized dependent step in the same work loop.
+
+When a user-side blocker exists, the assistant must:
+- state exactly what system to use (for example Windows PowerShell, VPS bash, ChatGPT UI, Entra portal);
+- provide the full command or action, preferably as one single-line command or one cohesive block;
+- state what output/result to return;
+- avoid asking for any additional confirmation;
+- resume automatically when that result arrives.
+
 ## Deliverable-first ownership rule
 
 Treat approved build work like an engineering assignment, not an interactive shell tutorial.
