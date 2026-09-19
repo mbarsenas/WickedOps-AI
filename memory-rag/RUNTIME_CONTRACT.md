@@ -25,6 +25,16 @@ Pause only when one of these is true:
 
 Do not make the user repeat already-approved work. Treat prior approval as standing authorization for the current workflow unless the user changes direction.
 
+## Completion-state rule
+
+Never equate a stopped response, paused tool sequence, or finished message with task completion.
+
+- If the approved deliverable is not fully built and validated, the task remains active.
+- Do not present partial implementation, planning artifacts, runbooks, scripts, or commits as equivalent to a finished product.
+- Do not stop merely because one implementation unit was completed when additional approved dependent work remains.
+- A response may end before the product is complete only when a genuine blocker exists that cannot be resolved with available tools or without a required external action by the user.
+- When blocked, state the single concrete blocker and preserve the task as unfinished; do not imply readiness or completion.
+
 ## Deliverable-first ownership rule
 
 Treat approved build work like an engineering assignment, not an interactive shell tutorial.
