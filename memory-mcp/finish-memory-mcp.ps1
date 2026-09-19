@@ -26,11 +26,13 @@ function Require-Module {
 
 Require-Module Microsoft.Graph.Authentication
 Require-Module Microsoft.Graph.Applications
+Require-Module Microsoft.Graph.Users
 
 $requiredScopes = @(
     'Application.ReadWrite.All',
     'DelegatedPermissionGrant.ReadWrite.All',
-    'Directory.Read.All'
+    'Directory.Read.All',
+    'User.Read'
 )
 
 $ctx = Get-MgContext -ErrorAction SilentlyContinue
@@ -41,6 +43,7 @@ if ($ctx) {
 }
 if ($needsConnect) {
     Connect-MgGraph -TenantId $TenantId -Scopes $requiredScopes -NoWelcome
+    $ctx = Get-MgContext
 }
 
 $scopeValue = 'MCP.Access'
@@ -141,10 +144,13 @@ if (-not $clientSp) { $clientSp = New-MgServicePrincipal -AppId $clientApp.AppId
 Write-Host "==> Ensuring delegated permission grant"
 $grant = Get-MgOauth2PermissionGrant -Filter "clientId eq '$($clientSp.Id)' and resourceId eq '$($apiSp.Id)'" -All | Select-Object -First 1
 if (-not $grant) {
+    $signedInUser = Get-MgUser -UserId $ctx.Account -Property Id,UserPrincipalName
+    if (-not $signedInUser.Id) { throw "Could not resolve signed-in Graph user object id for $($ctx.Account)." }
+
     New-MgOauth2PermissionGrant -BodyParameter @{
         ClientId = $clientSp.Id
         ConsentType = 'Principal'
-        PrincipalId = (Get-MgContext).Account
+        PrincipalId = $signedInUser.Id
         ResourceId = $apiSp.Id
         Scope = $scopeValue
     } | Out-Null
