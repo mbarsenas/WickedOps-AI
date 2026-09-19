@@ -6,6 +6,7 @@ SELFTEST_SERVICE="wickedops-memory-selftest.service"
 SELFTEST_TIMER="wickedops-memory-selftest.timer"
 BACKUP_SERVICE="wickedops-memory-backup.service"
 BACKUP_TIMER="wickedops-memory-backup.timer"
+PG_MAJOR="${PG_MAJOR:-18}"
 
 [[ $EUID -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
 [[ -d "$ROOT" ]] || { echo "Missing $ROOT" >&2; exit 1; }
@@ -18,17 +19,32 @@ for f in production-self-test.sh backup-memory-db.sh restore-memory-db.sh; do
   chmod 0755 "$ROOT/$f"
 done
 
-if ! command -v pg_dump >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1; then
-  echo "PostgreSQL client tools missing; installing postgresql-client..."
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y postgresql-client
-fi
+ensure_pg_client() {
+  local current_major=""
+  if command -v pg_dump >/dev/null 2>&1; then
+    current_major="$(pg_dump --version | sed -E 's/.* ([0-9]+)(\.[0-9]+)?.*/\1/')"
+  fi
+  if [[ "$current_major" != "$PG_MAJOR" ]]; then
+    echo "PostgreSQL client major $PG_MAJOR required; current=${current_major:-missing}. Installing/upgrading..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y curl ca-certificates gnupg lsb-release
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+    apt-get update
+    apt-get install -y "postgresql-client-$PG_MAJOR"
+  fi
+}
 
-command -v pg_dump >/dev/null 2>&1 || { echo "pg_dump is still unavailable after install" >&2; exit 1; }
-command -v psql >/dev/null 2>&1 || { echo "psql is still unavailable after install" >&2; exit 1; }
-pg_dump --version
-psql --version
+ensure_pg_client
+
+PG_DUMP_BIN="/usr/lib/postgresql/$PG_MAJOR/bin/pg_dump"
+PSQL_BIN="/usr/lib/postgresql/$PG_MAJOR/bin/psql"
+[[ -x "$PG_DUMP_BIN" ]] || { echo "Required pg_dump $PG_MAJOR not found at $PG_DUMP_BIN" >&2; exit 1; }
+[[ -x "$PSQL_BIN" ]] || { echo "Required psql $PG_MAJOR not found at $PSQL_BIN" >&2; exit 1; }
+"$PG_DUMP_BIN" --version
+"$PSQL_BIN" --version
 
 cat > "/etc/systemd/system/$SELFTEST_SERVICE" <<EOF
 [Unit]
@@ -66,6 +82,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=$ROOT
+Environment=PG_DUMP_BIN=$PG_DUMP_BIN
 ExecStart=$ROOT/backup-memory-db.sh
 User=root
 EOF
