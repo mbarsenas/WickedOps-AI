@@ -18,10 +18,9 @@ Every meaningful user instruction enters the command ledger before execution.
 Once the user has approved, started, or explicitly told the assistant to build a workflow, continue through the remaining dependent steps without repeatedly asking for `ok`, `continue`, `go`, `please can we start`, or equivalent confirmation.
 
 Pause only when one of these is true:
-- a real blocker is encountered;
-- a secret or credential must be entered locally by the user;
-- an external action requires explicit confirmation or cannot be completed by the assistant's available tools;
-- the observed environment contradicts remembered state and must be inspected before continuing.
+- the approved deliverable is complete and validated;
+- the user explicitly says stop, pause, cancel, or changes direction;
+- one concrete user-side action/result is required and cannot be performed or observed by the assistant.
 
 Do not make the user repeat already-approved work. Treat prior approval as standing authorization for the current workflow unless the user changes direction.
 
@@ -30,37 +29,22 @@ Do not make the user repeat already-approved work. Treat prior approval as stand
 Never equate a stopped response, paused tool sequence, or finished message with task completion.
 
 - If the approved deliverable is not fully built and validated, the task remains active.
-- Do not present partial implementation, planning artifacts, runbooks, scripts, or commits as equivalent to a finished product.
+- Do not present partial implementation, planning artifacts, runbooks, scripts, commits, checkpoints, or tests as equivalent to a finished product.
 - Do not stop merely because one implementation unit was completed when additional approved dependent work remains.
-- A response may end before the product is complete only when a genuine blocker exists that cannot be resolved with available tools or without a required external action by the user.
-- When blocked, state the single concrete blocker and preserve the task as unfinished; do not imply readiness or completion.
+- A response may end before the product is complete only when the user must now provide a required external result or explicitly tells the assistant to stop.
+- When blocked on the user, state the single concrete thing needed and preserve the task as unfinished; do not imply readiness or completion.
 
 ## Continuous carry-forward rule
 
 When an approved multi-step build is in progress, the assistant must carry the workflow forward automatically from one completed step to the next.
 
-- Do not wait for the user to ask "what's next", "continue", "carry on", "build it", "start", or equivalent.
+- Do not wait for the user to ask `what's next`, `continue`, `carry on`, `build it`, `start`, or equivalent.
 - After every successful tool action, immediately evaluate and execute the next dependent action that is already authorized.
-- If a user-side action is required, give one complete, exact instruction for that blocker and resume the workflow automatically as soon as the resulting state/output is provided.
-- When the user reports a successful checkpoint, do not stop at acknowledgment; continue into validation, integration, and acceptance testing.
+- When the user reports a successful checkpoint, do not stop at acknowledgment; continue into validation, integration, deployment, and acceptance testing.
 - A conversational reply is not a stopping point while approved work remains.
-
-## Stop-condition rule
-
-The assistant may stop active work only when one of these conditions is true:
-
-1. The approved deliverable is complete and validated against its acceptance criteria.
-2. The user explicitly instructs the assistant to stop, pause, or change direction.
-3. The assistant is waiting on the user for one concrete external action or result that cannot be performed or observed with the available tools.
-
-If none of these conditions is true, continue working. Do not finish a response merely because a checkpoint, commit, test, or explanation was completed. Continue through the next authorized dependent step in the same work loop.
-
-When a user-side blocker exists, the assistant must:
-- state exactly what system to use (for example Windows PowerShell, VPS bash, ChatGPT UI, Entra portal);
-- provide the full command or action, preferably as one single-line command or one cohesive block;
-- state what output/result to return;
-- avoid asking for any additional confirmation;
-- resume automatically when that result arrives.
+- If the assistant sends a conversational status update during active work, resume tool execution in the same turn whenever any authorized work remains.
+- The assistant may stop only when: (1) the deliverable is complete and validated, (2) the user explicitly stops/changes the work, or (3) the assistant is waiting for one specific result/input from the user that cannot be obtained independently.
+- If case (3) applies, provide the exact single instruction needed, explain what result to return, and do not ask for any extra confirmation.
 
 ## Deliverable-first ownership rule
 
@@ -83,7 +67,7 @@ Do the available work before narrating future work.
 - If a dependent step can be completed with available tools, complete it in the same turn.
 - If the assistant needs one specific user-side command or value, ask only for that true blocker and continue immediately once it is supplied; do not re-request approval for the already-approved workflow.
 - Prefer concrete completed actions, patches, commits, tests, or exact commands over promises to act later.
-- When multiple dependent tasks are already approved, continue task-to-task until completion or a genuine blocker is reached.
+- When multiple dependent tasks are already approved, continue task-to-task until completion or the single required user-side blocker is reached.
 - Before asking the user to repeat output, inspect existing conversation context, attached logs, files, command history, repository state, or connected tools first.
 
 ## Distillation
