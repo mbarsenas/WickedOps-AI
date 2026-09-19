@@ -14,6 +14,32 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Ensure-PublicClientFlow {
+    param([string]$TenantId,[string]$ClientId)
+
+    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
+        throw "Microsoft.Graph.Authentication module is required."
+    }
+    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Applications)) {
+        throw "Microsoft.Graph.Applications module is required."
+    }
+
+    $ctx = Get-MgContext -ErrorAction SilentlyContinue
+    if (-not $ctx -or $ctx.TenantId -ne $TenantId -or 'Application.ReadWrite.All' -notin $ctx.Scopes) {
+        Connect-MgGraph -TenantId $TenantId -Scopes 'Application.ReadWrite.All' -NoWelcome
+    }
+
+    $app = Get-MgApplication -Filter "appId eq '$ClientId'" -All | Select-Object -First 1
+    if (-not $app) { throw "Could not find Entra application for client id $ClientId" }
+
+    if (-not $app.IsFallbackPublicClient) {
+        Write-Host '==> Enabling public client flow for device-code smoke testing'
+        Update-MgApplication -ApplicationId $app.Id -BodyParameter @{ IsFallbackPublicClient = $true }
+    } else {
+        Write-Host '==> Public client flow already enabled'
+    }
+}
+
 function Get-DeviceCodeToken {
     param([string]$TenantId,[string]$ClientId,[string]$Scope)
 
@@ -66,6 +92,8 @@ function Invoke-Mcp {
         -ContentType 'application/json' `
         -Body $payload
 }
+
+Ensure-PublicClientFlow -TenantId $TenantId -ClientId $ClientId
 
 $token = Get-DeviceCodeToken -TenantId $TenantId -ClientId $ClientId -Scope $Scope
 if (-not $token.access_token) { throw 'No access token returned.' }
