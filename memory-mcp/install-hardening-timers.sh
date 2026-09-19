@@ -8,9 +8,15 @@ BACKUP_SERVICE="wickedops-memory-backup.service"
 BACKUP_TIMER="wickedops-memory-backup.timer"
 
 [[ $EUID -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+[[ -d "$ROOT" ]] || { echo "Missing $ROOT" >&2; exit 1; }
 
-install -m 0755 "$ROOT/production-self-test.sh" "$ROOT/production-self-test.sh"
-install -m 0755 "$ROOT/backup-memory-db.sh" "$ROOT/backup-memory-db.sh"
+BASE_URL="https://raw.githubusercontent.com/mbarsenas/WickedOps-AI/feat/memory-hardening/memory-mcp"
+STAMP="$(date +%s%N)"
+
+for f in production-self-test.sh backup-memory-db.sh restore-memory-db.sh; do
+  curl -fsSL -H 'Cache-Control: no-cache' "$BASE_URL/$f?nocache=$STAMP" -o "$ROOT/$f"
+  chmod 0755 "$ROOT/$f"
+done
 
 cat > "/etc/systemd/system/$SELFTEST_SERVICE" <<EOF
 [Unit]
@@ -68,5 +74,18 @@ EOF
 systemctl daemon-reload
 systemctl enable --now "$SELFTEST_TIMER" "$BACKUP_TIMER"
 
-echo "TIMERS=PASS"
+systemctl start "$SELFTEST_SERVICE"
+systemctl start "$BACKUP_SERVICE"
+
+systemctl is-active --quiet "$SELFTEST_TIMER"
+systemctl is-active --quiet "$BACKUP_TIMER"
+
+latest_backup="$(find "$ROOT/backups-db" -maxdepth 1 -type f -name 'wickedops-memory-*.sql.gz' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
+[[ -n "$latest_backup" ]] || { echo "No database backup produced" >&2; exit 1; }
+gzip -t "$latest_backup"
+
+echo "HARDENING_INSTALL=PASS"
+echo "SELFTEST_TIMER=$SELFTEST_TIMER"
+echo "BACKUP_TIMER=$BACKUP_TIMER"
+echo "LATEST_BACKUP=$latest_backup"
 systemctl list-timers --all "$SELFTEST_TIMER" "$BACKUP_TIMER" --no-pager
