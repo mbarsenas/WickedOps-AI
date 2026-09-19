@@ -8,9 +8,11 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$BACKUP_DIR/wickedops-memory-$STAMP.sql.gz"
 KEEP_DAYS="${KEEP_DAYS:-14}"
 PY="$ROOT/.venv/bin/python"
+PG_DUMP_BIN="${PG_DUMP_BIN:-$(command -v pg_dump || true)}"
 
 [[ -f "$ENV_FILE" ]] || { echo "Missing $ENV_FILE" >&2; exit 1; }
 [[ -x "$PY" ]] || { echo "Missing Python venv at $PY" >&2; exit 1; }
+[[ -n "$PG_DUMP_BIN" && -x "$PG_DUMP_BIN" ]] || { echo "pg_dump not found; install PostgreSQL client tools" >&2; exit 1; }
 mkdir -p "$BACKUP_DIR"
 
 DATABASE_URL="$("$PY" - <<'PY'
@@ -20,9 +22,6 @@ print(v.get('DATABASE_URL',''))
 PY
 )"
 [[ -n "$DATABASE_URL" ]] || { echo "DATABASE_URL missing" >&2; exit 1; }
-
-PG_DUMP_BIN="$(command -v pg_dump || true)"
-[[ -n "$PG_DUMP_BIN" ]] || { echo "pg_dump not found; install PostgreSQL client tools" >&2; exit 1; }
 
 "$PG_DUMP_BIN" "$DATABASE_URL" \
   --no-owner --no-privileges \
