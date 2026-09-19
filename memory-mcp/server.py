@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime, timezone
 from typing import Any, Optional
+from contextvars import ContextVar
 
 import jwt
 import psycopg
@@ -18,6 +19,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 JWKS_URL = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
 jwks = PyJWKClient(JWKS_URL)
+current_claims: ContextVar[dict[str, Any] | None] = ContextVar("current_claims", default=None)
 
 mcp = FastMCP(
     "WickedOps Memory",
@@ -73,7 +75,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     try:
         claims = verify_token(request)
-        request.state.claims = claims
+        current_claims.set(claims)
     except Exception as exc:
         return JSONResponse(
             {"error": "invalid_token", "error_description": str(exc)},
@@ -97,7 +99,9 @@ def memory_record(
     ctx: Context = None,
 ) -> dict:
     """Persist an explicit instruction, decision, correction, state, incident, preference, project fact, procedure, or artifact."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     vector = embed(content)
     with db() as conn:
@@ -123,7 +127,9 @@ def memory_search(
     ctx: Context = None,
 ) -> list[dict]:
     """Hybrid semantic search over durable memory."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     vector = embed(query)
     clauses = ["user_key=%s", "status='active'"]
@@ -135,7 +141,7 @@ def memory_search(
         clauses.append("memory_type = ANY(%s)")
         params.append(memory_types)
     where = " AND ".join(clauses)
-    params.extend([vector, limit])
+    sql_params = [vector, *params, vector, limit]
     with db() as conn:
         rows = conn.execute(
             f"""SELECT id, project_key, memory_type, content, source_type, source_ref,
@@ -145,7 +151,7 @@ def memory_search(
                 WHERE {where}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s""",
-            [*params[:-2], vector, vector, limit],
+            sql_params,
         ).fetchall()
     return [
         {
@@ -161,7 +167,9 @@ def memory_search(
 @mcp.tool()
 def memory_get(memory_id: str, ctx: Context = None) -> dict:
     """Retrieve one memory item with provenance."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     with db() as conn:
         r = conn.execute(
@@ -198,7 +206,9 @@ def command_record(
     ctx: Context = None,
 ) -> dict:
     """Record an instruction and its execution lifecycle."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     with db() as conn:
         r = conn.execute(
@@ -229,7 +239,9 @@ def command_search(
     ctx: Context = None,
 ) -> list[dict]:
     """Find prior commands/instructions before taking consequential action."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     pattern = f"%{query}%"
     with db() as conn:
@@ -268,7 +280,9 @@ def state_record(
     ctx: Context = None,
 ) -> dict:
     """Record verified current state for an entity."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     with db() as conn:
         r = conn.execute(
@@ -292,7 +306,9 @@ def state_get(
     ctx: Context = None,
 ) -> dict:
     """Return the newest verified state snapshot for an entity."""
-    claims = getattr(ctx.request_context, "request", None).state.claims
+    claims = current_claims.get()
+    if not claims:
+        raise PermissionError("Authentication context missing")
     uk = user_key(claims)
     with db() as conn:
         r = conn.execute(
