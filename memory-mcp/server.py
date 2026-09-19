@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 from contextvars import ContextVar
 
@@ -26,8 +26,19 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
 )
+mcp_app = mcp.streamable_http_app()
 
-app = FastAPI(title="WickedOps Memory MCP")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # FastMCP streamable HTTP requires its session manager task group to be
+    # started with the MCP app lifespan. Without this, requests fail with:
+    # "Task group is not initialized. Make sure to use run()."
+    async with mcp_app.lifespan(app):
+        yield
+
+
+app = FastAPI(title="WickedOps Memory MCP", lifespan=lifespan)
 
 
 def verify_token(request: Request) -> dict[str, Any]:
@@ -101,7 +112,6 @@ def memory_record(
     confidence: float = 1.0,
     ctx: Context = None,
 ) -> dict:
-    """Persist an explicit instruction, decision, correction, state, incident, preference, project fact, procedure, or artifact."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -129,7 +139,6 @@ def memory_search(
     limit: int = 10,
     ctx: Context = None,
 ) -> list[dict]:
-    """Hybrid semantic search over durable memory."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -169,7 +178,6 @@ def memory_search(
 
 @mcp.tool()
 def memory_get(memory_id: str, ctx: Context = None) -> dict:
-    """Retrieve one memory item with provenance."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -208,7 +216,6 @@ def command_record(
     error_text: Optional[str] = None,
     ctx: Context = None,
 ) -> dict:
-    """Record an instruction and its execution lifecycle."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -241,7 +248,6 @@ def command_search(
     limit: int = 20,
     ctx: Context = None,
 ) -> list[dict]:
-    """Find prior commands/instructions before taking consequential action."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -282,7 +288,6 @@ def state_record(
     source_ref: Optional[str] = None,
     ctx: Context = None,
 ) -> dict:
-    """Record verified current state for an entity."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -308,7 +313,6 @@ def state_get(
     project_key: Optional[str] = None,
     ctx: Context = None,
 ) -> dict:
-    """Return the newest verified state snapshot for an entity."""
     claims = current_claims.get()
     if not claims:
         raise PermissionError("Authentication context missing")
@@ -337,7 +341,6 @@ def memory_context(
     limit: int = 8,
     ctx: Context = None,
 ) -> dict:
-    """Build a working-state context from commands, verified state, and semantic memory."""
     memories = memory_search(query, project_key=project_key, limit=limit, ctx=ctx)
     commands = command_search(query, project_key=project_key, limit=limit, ctx=ctx)
     return {
@@ -365,9 +368,8 @@ async def protected_resource_metadata():
 
 
 # Mount FastMCP last at the application root. This preserves /healthz and
-# /.well-known/* on the parent FastAPI app while exposing FastMCP's internal
-# /mcp route exactly as /mcp to ChatGPT (not /mcp/mcp).
-app.mount("/", mcp.streamable_http_app())
+# /.well-known/* while exposing FastMCP's internal /mcp route exactly as /mcp.
+app.mount("/", mcp_app)
 
 
 if __name__ == "__main__":
