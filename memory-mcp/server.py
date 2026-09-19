@@ -26,15 +26,16 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
 )
+
+# Build the MCP ASGI app at module import time so mcp.session_manager exists.
 mcp_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # FastMCP streamable HTTP requires its session manager task group to be
-    # started with the MCP app lifespan. Without this, requests fail with:
-    # "Task group is not initialized. Make sure to use run()."
-    async with mcp_app.lifespan(app):
+    # Mounted sub-app lifespans are not run by Starlette/FastAPI. The host app
+    # must explicitly run FastMCP's session manager for the process lifetime.
+    async with mcp.session_manager.run():
         yield
 
 
@@ -367,8 +368,8 @@ async def protected_resource_metadata():
     }
 
 
-# Mount FastMCP last at the application root. This preserves /healthz and
-# /.well-known/* while exposing FastMCP's internal /mcp route exactly as /mcp.
+# Keep parent routes first, then mount FastMCP at root. FastMCP's internal
+# streamable HTTP route remains /mcp, which is the public connector URL.
 app.mount("/", mcp_app)
 
 
