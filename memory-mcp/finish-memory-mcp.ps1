@@ -175,6 +175,7 @@ Write-Host "CHATGPT_REDIRECT_URI=$ChatGptRedirectUri"
 Write-Host "AUTHORIZATION_URL=https://login.microsoftonline.com/$TenantId/oauth2/v2.0/authorize"
 Write-Host "TOKEN_URL=https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
 Write-Host "OAUTH_SCOPES=openid offline_access $scopeFull"
+Write-Host "IMPORTANT_SCOPE_NOTE=In ChatGPT connector configuration, the custom API scope must be entered as the fully-qualified URI above, not bare MCP.Access."
 Write-Host ''
 Write-Host 'CLIENT_SECRET_BEGIN'
 Write-Host $secret.SecretText
