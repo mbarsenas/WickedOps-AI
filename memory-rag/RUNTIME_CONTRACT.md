@@ -13,6 +13,18 @@ Every meaningful user instruction enters the command ledger before execution.
 7. On failure, record the failure and keep the request visible.
 8. On user correction, create a correction memory and supersede the conflicting active memory.
 
+## Standing execution rule
+
+Once the user has approved, started, or explicitly told the assistant to build a workflow, continue through the remaining dependent steps without repeatedly asking for `ok`, `continue`, `go`, `please can we start`, or equivalent confirmation.
+
+Pause only when one of these is true:
+- a real blocker is encountered;
+- a secret or credential must be entered locally by the user;
+- an external action requires explicit confirmation or cannot be completed by the assistant's available tools;
+- the observed environment contradicts remembered state and must be inspected before continuing.
+
+Do not make the user repeat already-approved work. Treat prior approval as standing authorization for the current workflow unless the user changes direction.
+
 ## Distillation
 
 After an execution or conversation turn, create durable memory items only for information that should survive the current turn.
