@@ -1,0 +1,16 @@
+[Unit]
+Description=WickedOps Memory MCP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/wickedops-memory-mcp
+EnvironmentFile=/opt/wickedops-memory-mcp/.env
+ExecStart=/opt/wickedops-memory-mcp/.venv/bin/python /opt/wickedops-memory-mcp/server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
