@@ -18,6 +18,18 @@ for f in production-self-test.sh backup-memory-db.sh restore-memory-db.sh; do
   chmod 0755 "$ROOT/$f"
 done
 
+if ! command -v pg_dump >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1; then
+  echo "PostgreSQL client tools missing; installing postgresql-client..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y postgresql-client
+fi
+
+command -v pg_dump >/dev/null 2>&1 || { echo "pg_dump is still unavailable after install" >&2; exit 1; }
+command -v psql >/dev/null 2>&1 || { echo "psql is still unavailable after install" >&2; exit 1; }
+pg_dump --version
+psql --version
+
 cat > "/etc/systemd/system/$SELFTEST_SERVICE" <<EOF
 [Unit]
 Description=WickedOps Memory MCP production self-test
