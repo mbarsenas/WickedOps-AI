@@ -75,7 +75,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     try:
         claims = verify_token(request)
-        current_claims.set(claims)
+        token = current_claims.set(claims)
     except Exception as exc:
         return JSONResponse(
             {"error": "invalid_token", "error_description": str(exc)},
@@ -84,7 +84,10 @@ async def auth_middleware(request: Request, call_next):
                 "WWW-Authenticate": 'Bearer error="invalid_token", error_description="Authentication required"',
             },
         )
-    return await call_next(request)
+    try:
+        return await call_next(request)
+    finally:
+        current_claims.reset(token)
 
 
 @mcp.tool()
@@ -346,10 +349,6 @@ def memory_context(
     }
 
 
-# Mount the Streamable HTTP MCP application.
-app.mount("/mcp", mcp.streamable_http_app())
-
-
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok", "service": "wickedops-memory-mcp"}
@@ -363,6 +362,12 @@ async def protected_resource_metadata():
         "scopes_supported": ["MCP.Access"],
         "bearer_methods_supported": ["header"],
     }
+
+
+# Mount FastMCP last at the application root. This preserves /healthz and
+# /.well-known/* on the parent FastAPI app while exposing FastMCP's internal
+# /mcp route exactly as /mcp to ChatGPT (not /mcp/mcp).
+app.mount("/", mcp.streamable_http_app())
 
 
 if __name__ == "__main__":
